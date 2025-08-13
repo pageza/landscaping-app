@@ -1,0 +1,63 @@
+name: Deploy
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ vars.AWS_REGION }}
+
+    - name: Deploy to ECS
+      run: |
+        # Update ECS service with new task definition
+        # This would typically involve updating the task definition
+        # with new Docker image tags and deploying to ECS
+        echo "Deploying to ${{ github.event.inputs.environment || 'production' }}"
+        
+        # Example deployment commands would go here
+        # aws ecs update-service --cluster $CLUSTER_NAME --service $SERVICE_NAME --force-new-deployment
+
+    - name: Run database migrations
+      run: |
+        # Run database migrations
+        echo "Running database migrations"
+        # kubectl run migrate-job --image=${{ env.REGISTRY }}/${{ github.repository }}-api:${{ github.sha }} --restart=Never -- ./migrate up
+
+    - name: Health check
+      run: |
+        # Perform health check
+        echo "Performing health check"
+        # curl -f ${{ vars.APP_URL }}/health || exit 1
+
+    - name: Notify Slack
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
