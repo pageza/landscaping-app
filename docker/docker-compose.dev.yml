@@ -1,0 +1,176 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: landscaping_postgres_dev
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-landscaping_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ../backend/migrations:/docker-entrypoint-initdb.d/migrations:ro
+    networks:
+      - landscaping_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-landscaping_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: landscaping_redis_dev
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data_dev:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - landscaping_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-redis123}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: landscaping_api_dev
+    ports:
+      - "${API_PORT:-8080}:8080"
+    environment:
+      - ENV=development
+      - API_PORT=8080
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-landscaping_dev}?sslmode=disable
+      - REDIS_URL=redis://default:${REDIS_PASSWORD:-redis123}@redis:6379
+      - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-key}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-dev-encryption-key-32-chars}
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8081,http://localhost:3000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - landscaping_network
+    volumes:
+      - api_logs:/var/log/api
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: landscaping_worker_dev
+    environment:
+      - ENV=development
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-landscaping_dev}?sslmode=disable
+      - REDIS_URL=redis://default:${REDIS_PASSWORD:-redis123}@redis:6379
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - landscaping_network
+    volumes:
+      - worker_logs:/var/log/worker
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    container_name: landscaping_web_dev
+    ports:
+      - "${WEB_PORT:-8081}:8081"
+    environment:
+      - ENV=development
+      - WEB_PORT=8081
+      - API_BASE_URL=${API_BASE_URL:-http://api:8080}
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+    depends_on:
+      - api
+    networks:
+      - landscaping_network
+    volumes:
+      - web_logs:/var/log/web
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: landscaping_mailpit_dev
+    ports:
+      - "${MAILPIT_WEB_PORT:-8025}:8025"  # Web UI
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"  # SMTP
+    environment:
+      - MP_SMTP_AUTH_ACCEPT_ANY=1
+      - MP_SMTP_AUTH_ALLOW_INSECURE=1
+      - MP_MAX_MESSAGES=${MAILPIT_MAX_MESSAGES:-500}
+    networks:
+      - landscaping_network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  postgres_data_dev:
+    driver: local
+  redis_data_dev:
+    driver: local
+  api_logs:
+    driver: local
+  worker_logs:
+    driver: local
+  web_logs:
+    driver: local
+
+networks:
+  landscaping_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

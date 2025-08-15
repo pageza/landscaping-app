@@ -1,0 +1,521 @@
+package services
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/pageza/landscaping-app/backend/internal/domain"
+)
+
+// BillingServiceImpl implements subscription and billing management for SaaS tenants
+type BillingServiceImpl struct {
+	subscriptionRepo    SubscriptionRepository
+	tenantRepo          TenantRepository
+	paymentRepo         PaymentRepositoryFull
+	auditService        AuditService
+	communicationService CommunicationService
+	paymentsIntegration PaymentsIntegration
+	logger              *slog.Logger
+}
+
+// SubscriptionRepository defines the interface for subscription data access
+type SubscriptionRepository interface {
+	// CRUD operations
+	Create(ctx context.Context, subscription *domain.Subscription) error
+	GetByID(ctx context.Context, subscriptionID uuid.UUID) (*domain.Subscription, error)
+	Update(ctx context.Context, subscription *domain.Subscription) error
+	Delete(ctx context.Context, subscriptionID uuid.UUID) error
+	List(ctx context.Context, filter *SubscriptionFilter) ([]*domain.Subscription, int64, error)
+	
+	// Filtering operations
+	GetByTenantID(ctx context.Context, tenantID uuid.UUID) (*domain.Subscription, error)
+	GetByStatus(ctx context.Context, status string) ([]*domain.Subscription, error)
+	GetExpiring(ctx context.Context, days int) ([]*domain.Subscription, error)
+	
+	// Usage tracking
+	CreateUsageRecord(ctx context.Context, usage *UsageRecord) error
+	GetUsageBySubscription(ctx context.Context, subscriptionID uuid.UUID, startDate, endDate time.Time) ([]*UsageRecord, error)
+	GetUsageSummary(ctx context.Context, subscriptionID uuid.UUID, period string) (*UsageSummary, error)
+}
+
+// NewBillingService creates a new billing service instance
+func NewBillingService(
+	subscriptionRepo SubscriptionRepository,
+	tenantRepo TenantRepository,
+	paymentRepo PaymentRepositoryFull,
+	auditService AuditService,
+	communicationService CommunicationService,
+	paymentsIntegration PaymentsIntegration,
+	logger *slog.Logger,
+) BillingService {
+	return &BillingServiceImpl{
+		subscriptionRepo:     subscriptionRepo,
+		tenantRepo:          tenantRepo,
+		paymentRepo:         paymentRepo,
+		auditService:        auditService,
+		communicationService: communicationService,
+		paymentsIntegration: paymentsIntegration,
+		logger:              logger,
+	}
+}
+
+// CreateSubscription creates a new subscription for a tenant
+func (s *BillingServiceImpl) CreateSubscription(ctx context.Context, req *SubscriptionCreateRequest) (*domain.Subscription, error) {
+	// Validate request
+	if err := s.validateSubscriptionRequest(req); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Verify tenant exists
+	tenant, err := s.tenantRepo.GetByID(ctx, req.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify tenant: %w", err)
+	}
+	if tenant == nil {
+		return nil, fmt.Errorf("tenant not found")
+	}
+
+	// Check if tenant already has an active subscription
+	existingSubscription, err := s.subscriptionRepo.GetByTenantID(ctx, req.TenantID)
+	if err == nil && existingSubscription != nil && existingSubscription.Status == "active" {
+		return nil, fmt.Errorf("tenant already has an active subscription")
+	}
+
+	// Calculate billing dates
+	now := time.Now()
+	var billingCycleStart, billingCycleEnd time.Time
+	
+	switch req.BillingCycle {
+	case "monthly":
+		billingCycleStart = now
+		billingCycleEnd = now.AddDate(0, 1, 0)
+	case "quarterly":
+		billingCycleStart = now
+		billingCycleEnd = now.AddDate(0, 3, 0)
+	case "yearly":
+		billingCycleStart = now
+		billingCycleEnd = now.AddDate(1, 0, 0)
+	default:
+		return nil, fmt.Errorf("invalid billing cycle: %s", req.BillingCycle)
+	}
+
+	// Handle trial period
+	var trialEndsAt *time.Time
+	if req.TrialDays > 0 {
+		trialEnd := now.AddDate(0, 0, req.TrialDays)
+		trialEndsAt = &trialEnd
+		billingCycleStart = trialEnd
+		billingCycleEnd = s.calculateNextBillingDate(trialEnd, req.BillingCycle)
+	}
+
+	// Create subscription
+	subscription := &domain.Subscription{
+		ID:                   uuid.New(),
+		TenantID:             req.TenantID,
+		PlanID:               req.PlanID,
+		Status:               "active",
+		BillingCycle:         req.BillingCycle,
+		Amount:               req.Amount,
+		Currency:             req.Currency,
+		CurrentPeriodStart:   billingCycleStart,
+		CurrentPeriodEnd:     billingCycleEnd,
+		TrialEndsAt:          trialEndsAt,
+		PaymentGatewayID:     req.PaymentMethodID,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+
+	// Create payment gateway subscription if not in trial
+	if req.TrialDays == 0 {
+		gatewayReq := &CreateSubscriptionRequest{
+			CustomerID:      tenant.PaymentGatewayID,
+			PriceID:         req.PlanID,
+			PaymentMethodID: req.PaymentMethodID,
+			Description:     fmt.Sprintf("Subscription for tenant %s", tenant.Name),
+			Metadata: map[string]string{
+				"tenant_id":       req.TenantID.String(),
+				"subscription_id": subscription.ID.String(),
+			},
+		}
+
+		gatewaySubscription, err := s.paymentsIntegration.CreateSubscription(ctx, gatewayReq)
+		if err != nil {
+			s.logger.Error("Failed to create gateway subscription", "error", err, "tenant_id", req.TenantID)
+			return nil, fmt.Errorf("failed to create gateway subscription: %w", err)
+		}
+
+		subscription.PaymentGatewaySubscriptionID = &gatewaySubscription.ID
+	}
+
+	// Save subscription
+	if err := s.subscriptionRepo.Create(ctx, subscription); err != nil {
+		s.logger.Error("Failed to create subscription", "error", err, "tenant_id", req.TenantID)
+		return nil, fmt.Errorf("failed to create subscription: %w", err)
+	}
+
+	// Update tenant subscription status
+	tenant.SubscriptionStatus = "active"
+	tenant.UpdatedAt = now
+	if err := s.tenantRepo.Update(ctx, tenant); err != nil {
+		s.logger.Warn("Failed to update tenant subscription status", "error", err)
+	}
+
+	// Log audit event
+	if err := s.auditService.LogAction(ctx, &AuditLogRequest{
+		UserID:       GetUserIDFromContext(ctx),
+		Action:       "subscription.create",
+		ResourceType: "subscription",
+		ResourceID:   &subscription.ID,
+		NewValues: map[string]interface{}{
+			"tenant_id":     req.TenantID,
+			"plan_id":       req.PlanID,
+			"amount":        req.Amount,
+			"billing_cycle": req.BillingCycle,
+			"trial_days":    req.TrialDays,
+		},
+	}); err != nil {
+		s.logger.Warn("Failed to log audit event", "error", err)
+	}
+
+	s.logger.Info("Subscription created successfully", "subscription_id", subscription.ID, "tenant_id", req.TenantID)
+	return subscription, nil
+}
+
+// UpdateSubscription updates an existing subscription
+func (s *BillingServiceImpl) UpdateSubscription(ctx context.Context, subscriptionID uuid.UUID, req *SubscriptionUpdateRequest) (*domain.Subscription, error) {
+	// Get existing subscription
+	subscription, err := s.subscriptionRepo.GetByID(ctx, subscriptionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription: %w", err)
+	}
+	if subscription == nil {
+		return nil, fmt.Errorf("subscription not found")
+	}
+
+	// Store old values for audit
+	oldValues := map[string]interface{}{
+		"plan_id":       subscription.PlanID,
+		"amount":        subscription.Amount,
+		"billing_cycle": subscription.BillingCycle,
+		"status":        subscription.Status,
+	}
+
+	// Update fields
+	if req.PlanID != nil {
+		subscription.PlanID = *req.PlanID
+	}
+	if req.Amount != nil {
+		subscription.Amount = *req.Amount
+	}
+	if req.BillingCycle != nil {
+		subscription.BillingCycle = *req.BillingCycle
+	}
+	if req.Status != nil {
+		subscription.Status = *req.Status
+	}
+
+	subscription.UpdatedAt = time.Now()
+
+	// Save changes
+	if err := s.subscriptionRepo.Update(ctx, subscription); err != nil {
+		s.logger.Error("Failed to update subscription", "error", err, "subscription_id", subscriptionID)
+		return nil, fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	// Log audit event
+	newValues := map[string]interface{}{
+		"plan_id":       subscription.PlanID,
+		"amount":        subscription.Amount,
+		"billing_cycle": subscription.BillingCycle,
+		"status":        subscription.Status,
+	}
+
+	if err := s.auditService.LogAction(ctx, &AuditLogRequest{
+		UserID:       GetUserIDFromContext(ctx),
+		Action:       "subscription.update",
+		ResourceType: "subscription",
+		ResourceID:   &subscription.ID,
+		OldValues:    oldValues,
+		NewValues:    newValues,
+	}); err != nil {
+		s.logger.Warn("Failed to log audit event", "error", err)
+	}
+
+	s.logger.Info("Subscription updated successfully", "subscription_id", subscriptionID)
+	return subscription, nil
+}
+
+// CancelSubscription cancels a subscription
+func (s *BillingServiceImpl) CancelSubscription(ctx context.Context, subscriptionID uuid.UUID, cancelAtPeriodEnd bool) error {
+	// Get subscription
+	subscription, err := s.subscriptionRepo.GetByID(ctx, subscriptionID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription: %w", err)
+	}
+	if subscription == nil {
+		return fmt.Errorf("subscription not found")
+	}
+
+	// Update subscription status
+	if cancelAtPeriodEnd {
+		subscription.Status = "cancel_at_period_end"
+		subscription.CancelAt = &subscription.CurrentPeriodEnd
+	} else {
+		subscription.Status = "cancelled"
+		now := time.Now()
+		subscription.CancelledAt = &now
+	}
+
+	subscription.UpdatedAt = time.Now()
+
+	// Save changes
+	if err := s.subscriptionRepo.Update(ctx, subscription); err != nil {
+		s.logger.Error("Failed to cancel subscription", "error", err, "subscription_id", subscriptionID)
+		return fmt.Errorf("failed to cancel subscription: %w", err)
+	}
+
+	// Update tenant status
+	tenant, err := s.tenantRepo.GetByID(ctx, subscription.TenantID)
+	if err == nil && tenant != nil {
+		if !cancelAtPeriodEnd {
+			tenant.SubscriptionStatus = "cancelled"
+		} else {
+			tenant.SubscriptionStatus = "cancel_at_period_end"
+		}
+		tenant.UpdatedAt = time.Now()
+		if err := s.tenantRepo.Update(ctx, tenant); err != nil {
+			s.logger.Warn("Failed to update tenant status", "error", err)
+		}
+	}
+
+	// Send cancellation email
+	if tenant != nil && tenant.ContactEmail != "" {
+		subject := "Subscription Cancellation Confirmation"
+		body := fmt.Sprintf("Your subscription has been %s.", subscription.Status)
+		if cancelAtPeriodEnd {
+			body += fmt.Sprintf(" Your service will continue until %s.", subscription.CurrentPeriodEnd.Format("January 2, 2006"))
+		}
+
+		if err := s.communicationService.SendEmail(ctx, &EmailRequest{
+			To:      []string{tenant.ContactEmail},
+			Subject: subject,
+			Body:    body,
+			IsHTML:  false,
+		}); err != nil {
+			s.logger.Warn("Failed to send cancellation email", "error", err)
+		}
+	}
+
+	// Log audit event
+	if err := s.auditService.LogAction(ctx, &AuditLogRequest{
+		UserID:       GetUserIDFromContext(ctx),
+		Action:       "subscription.cancel",
+		ResourceType: "subscription",
+		ResourceID:   &subscription.ID,
+		NewValues: map[string]interface{}{
+			"status":               subscription.Status,
+			"cancel_at_period_end": cancelAtPeriodEnd,
+		},
+	}); err != nil {
+		s.logger.Warn("Failed to log audit event", "error", err)
+	}
+
+	s.logger.Info("Subscription cancelled successfully", "subscription_id", subscriptionID, "cancel_at_period_end", cancelAtPeriodEnd)
+	return nil
+}
+
+// ProcessRecurringBilling processes recurring billing for all active subscriptions
+func (s *BillingServiceImpl) ProcessRecurringBilling(ctx context.Context) error {
+	// Get subscriptions that need billing
+	now := time.Now()
+	filter := &SubscriptionFilter{
+		Status: "active",
+		NextBillingDate: &now,
+	}
+
+	subscriptions, _, err := s.subscriptionRepo.List(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to get subscriptions for billing: %w", err)
+	}
+
+	billedCount := 0
+	for _, subscription := range subscriptions {
+		if err := s.processSingleBilling(ctx, subscription); err != nil {
+			s.logger.Error("Failed to process billing for subscription", "error", err, "subscription_id", subscription.ID)
+			continue
+		}
+		billedCount++
+	}
+
+	s.logger.Info("Recurring billing processed", "subscriptions_billed", billedCount, "total_subscriptions", len(subscriptions))
+	return nil
+}
+
+// TrackUsage tracks usage for a subscription
+func (s *BillingServiceImpl) TrackUsage(ctx context.Context, subscriptionID uuid.UUID, usageType string, quantity int, metadata map[string]interface{}) error {
+	// Get subscription
+	subscription, err := s.subscriptionRepo.GetByID(ctx, subscriptionID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription: %w", err)
+	}
+	if subscription == nil {
+		return fmt.Errorf("subscription not found")
+	}
+
+	// Create usage record
+	usage := &UsageRecord{
+		ID:             uuid.New(),
+		SubscriptionID: subscriptionID,
+		TenantID:       subscription.TenantID,
+		UsageType:      usageType,
+		Quantity:       quantity,
+		Timestamp:      time.Now(),
+		Metadata:       metadata,
+	}
+
+	if err := s.subscriptionRepo.CreateUsageRecord(ctx, usage); err != nil {
+		s.logger.Error("Failed to create usage record", "error", err, "subscription_id", subscriptionID)
+		return fmt.Errorf("failed to create usage record: %w", err)
+	}
+
+	s.logger.Debug("Usage tracked", "subscription_id", subscriptionID, "type", usageType, "quantity", quantity)
+	return nil
+}
+
+// GetSubscriptionUsage gets usage summary for a subscription
+func (s *BillingServiceImpl) GetSubscriptionUsage(ctx context.Context, subscriptionID uuid.UUID, period string) (*UsageSummary, error) {
+	summary, err := s.subscriptionRepo.GetUsageSummary(ctx, subscriptionID, period)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get usage summary: %w", err)
+	}
+
+	return summary, nil
+}
+
+// HandleBillingWebhook handles billing-related webhooks
+func (s *BillingServiceImpl) HandleBillingWebhook(ctx context.Context, payload []byte, signature string) error {
+	event, err := s.paymentsIntegration.ProcessWebhook(ctx, payload, signature)
+	if err != nil {
+		return fmt.Errorf("failed to process webhook: %w", err)
+	}
+
+	switch event.Type {
+	case "invoice.payment_succeeded":
+		return s.handleInvoicePaymentSucceeded(ctx, event)
+	case "invoice.payment_failed":
+		return s.handleInvoicePaymentFailed(ctx, event)
+	case "customer.subscription.updated":
+		return s.handleSubscriptionUpdated(ctx, event)
+	case "customer.subscription.deleted":
+		return s.handleSubscriptionDeleted(ctx, event)
+	default:
+		s.logger.Info("Unhandled billing webhook event", "type", event.Type)
+	}
+
+	return nil
+}
+
+// Private helper methods
+
+func (s *BillingServiceImpl) validateSubscriptionRequest(req *SubscriptionCreateRequest) error {
+	if req.TenantID == uuid.Nil {
+		return fmt.Errorf("tenant ID is required")
+	}
+	if req.PlanID == "" {
+		return fmt.Errorf("plan ID is required")
+	}
+	if req.Amount <= 0 {
+		return fmt.Errorf("amount must be greater than 0")
+	}
+	if req.BillingCycle == "" {
+		return fmt.Errorf("billing cycle is required")
+	}
+	validCycles := []string{"monthly", "quarterly", "yearly"}
+	valid := false
+	for _, cycle := range validCycles {
+		if req.BillingCycle == cycle {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("invalid billing cycle: %s", req.BillingCycle)
+	}
+	return nil
+}
+
+func (s *BillingServiceImpl) calculateNextBillingDate(from time.Time, billingCycle string) time.Time {
+	switch billingCycle {
+	case "monthly":
+		return from.AddDate(0, 1, 0)
+	case "quarterly":
+		return from.AddDate(0, 3, 0)
+	case "yearly":
+		return from.AddDate(1, 0, 0)
+	default:
+		return from.AddDate(0, 1, 0)
+	}
+}
+
+func (s *BillingServiceImpl) processSingleBilling(ctx context.Context, subscription *domain.Subscription) error {
+	// Create payment record
+	payment := &domain.Payment{
+		ID:           uuid.New(),
+		TenantID:     subscription.TenantID,
+		Amount:       subscription.Amount,
+		PaymentMethod: "subscription",
+		PaymentGateway: stringPtr("stripe"),
+		Status:       "pending",
+		Description:  stringPtr(fmt.Sprintf("Subscription billing for period %s to %s", 
+			subscription.CurrentPeriodStart.Format("2006-01-02"),
+			subscription.CurrentPeriodEnd.Format("2006-01-02"))),
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+
+	if err := s.paymentRepo.Create(ctx, payment); err != nil {
+		return fmt.Errorf("failed to create payment record: %w", err)
+	}
+
+	// Update subscription period
+	nextStart := subscription.CurrentPeriodEnd
+	nextEnd := s.calculateNextBillingDate(nextStart, subscription.BillingCycle)
+
+	subscription.CurrentPeriodStart = nextStart
+	subscription.CurrentPeriodEnd = nextEnd
+	subscription.UpdatedAt = time.Now()
+
+	if err := s.subscriptionRepo.Update(ctx, subscription); err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	return nil
+}
+
+func (s *BillingServiceImpl) handleInvoicePaymentSucceeded(ctx context.Context, event *WebhookEvent) error {
+	s.logger.Info("Invoice payment succeeded", "event_id", event.ID)
+	// Implementation would update payment and subscription status
+	return nil
+}
+
+func (s *BillingServiceImpl) handleInvoicePaymentFailed(ctx context.Context, event *WebhookEvent) error {
+	s.logger.Warn("Invoice payment failed", "event_id", event.ID)
+	// Implementation would handle failed payments, retry logic, etc.
+	return nil
+}
+
+func (s *BillingServiceImpl) handleSubscriptionUpdated(ctx context.Context, event *WebhookEvent) error {
+	s.logger.Info("Subscription updated", "event_id", event.ID)
+	// Implementation would sync subscription changes from payment gateway
+	return nil
+}
+
+func (s *BillingServiceImpl) handleSubscriptionDeleted(ctx context.Context, event *WebhookEvent) error {
+	s.logger.Info("Subscription deleted", "event_id", event.ID)
+	// Implementation would handle subscription deletion
+	return nil
+}

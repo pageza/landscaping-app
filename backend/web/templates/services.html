@@ -1,0 +1,105 @@
+{{define "title"}}Our Services - LandscapePro{{end}}
+
+{{define "services-content"}}
+<!-- Services Hero -->
+<section class="bg-gradient-to-br from-green-50 to-green-100 py-16">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <h1 class="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
+            Our Services
+        </h1>
+        <p class="text-xl text-gray-700 max-w-3xl mx-auto">
+            Comprehensive landscaping solutions designed to transform and maintain your outdoor spaces with professional expertise and sustainable practices.
+        </p>
+    </div>
+</section>
+
+<!-- Services Grid -->
+<section class="py-16">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div id="detailed-services" 
+             hx-get="/api/services/all" 
+             hx-trigger="load"
+             class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <!-- Loading skeleton -->
+            <div class="htmx-indicator space-y-8">
+                <div class="animate-pulse">
+                    <div class="bg-gray-200 h-48 rounded-lg mb-4"></div>
+                    <div class="bg-gray-200 h-4 rounded w-3/4 mb-2"></div>
+                    <div class="bg-gray-200 h-4 rounded w-1/2 mb-4"></div>
+                    <div class="bg-gray-200 h-10 rounded"></div>
+                </div>
+                <div class="animate-pulse">
+                    <div class="bg-gray-200 h-48 rounded-lg mb-4"></div>
+                    <div class="bg-gray-200 h-4 rounded w-3/4 mb-2"></div>
+                    <div class="bg-gray-200 h-4 rounded w-1/2 mb-4"></div>
+                    <div class="bg-gray-200 h-10 rounded"></div>
+                </div>
+                <div class="animate-pulse">
+                    <div class="bg-gray-200 h-48 rounded-lg mb-4"></div>
+                    <div class="bg-gray-200 h-4 rounded w-3/4 mb-2"></div>
+                    <div class="bg-gray-200 h-4 rounded w-1/2 mb-4"></div>
+                    <div class="bg-gray-200 h-10 rounded"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Service Categories -->
+<section class="py-16 bg-gray-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <h2 class="text-3xl font-bold text-center mb-12">Service Categories</h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div class="bg-white rounded-lg p-6 text-center shadow-md hover:shadow-lg transition">
+                <div class="text-4xl mb-4">🌱</div>
+                <h3 class="text-xl font-semibold mb-2">Maintenance</h3>
+                <p class="text-gray-600">Regular lawn care and garden upkeep</p>
+            </div>
+            
+            <div class="bg-white rounded-lg p-6 text-center shadow-md hover:shadow-lg transition">
+                <div class="text-4xl mb-4">🏗️</div>
+                <h3 class="text-xl font-semibold mb-2">Installation</h3>
+                <p class="text-gray-600">New landscape design and construction</p>
+            </div>
+            
+            <div class="bg-white rounded-lg p-6 text-center shadow-md hover:shadow-lg transition">
+                <div class="text-4xl mb-4">🌳</div>
+                <h3 class="text-xl font-semibold mb-2">Tree Care</h3>
+                <p class="text-gray-600">Professional arborist services</p>
+            </div>
+            
+            <div class="bg-white rounded-lg p-6 text-center shadow-md hover:shadow-lg transition">
+                <div class="text-4xl mb-4">❄️</div>
+                <h3 class="text-xl font-semibold mb-2">Seasonal</h3>
+                <p class="text-gray-600">Year-round property preparation</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA Section -->
+<section class="py-16 bg-primary">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <h2 class="text-3xl font-bold text-white mb-4">
+            Ready to Get Started?
+        </h2>
+        <p class="text-xl text-green-50 mb-8">
+            Get a custom quote for your landscaping project today
+        </p>
+        <button hx-get="/booking/form" 
+                hx-target="#booking-modal" 
+                hx-swap="innerHTML"
+                class="bg-white text-primary px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition">
+            Request Quote
+        </button>
+    </div>
+</section>
+
+<!-- Modal Container -->
+<div id="booking-modal"></div>
+{{end}}
+
+{{define "scripts"}}
+<script src="/static/js/app.js"></script>
+{{end}}

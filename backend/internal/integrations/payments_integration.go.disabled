@@ -1,0 +1,555 @@
+package integrations
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/google/uuid"
+	// TODO: Re-enable after fixing package availability
+	// "github.com/pageza/go-payments"
+	// "github.com/pageza/go-payments/providers/stripe"
+	// "github.com/pageza/go-payments/providers/paypal"
+	// "github.com/pageza/go-payments/providers/square"
+)
+
+// TODO: Remove stub types after re-enabling go-payments package
+type Client struct{}
+type Config struct {
+	Provider string
+	APIKey string
+	WebhookSecret string
+	SandboxMode bool
+}
+
+func NewClient(config *Config) (*Client, error) {
+	return &Client{}, nil
+}
+
+// TODO: Remove stub types after re-enabling go-payments package
+type CreatePaymentIntentRequest struct {
+	Amount          float64
+	Currency        string
+	CustomerID      *string
+	Description     *string
+	ShippingAddress *Address
+}
+
+type Address struct {
+	Line1    string
+	City     string
+	State    string
+	PostalCode string
+	Country  string
+}
+
+type ConfirmPaymentRequest struct {
+	PaymentIntentID string
+	PaymentMethodID string
+}
+
+type CapturePaymentRequest struct {
+	PaymentIntentID string
+	Amount          *float64
+}
+
+type RefundRequest struct {
+	PaymentIntentID string
+	Amount          *float64
+	Reason          *string
+}
+
+type CreateCustomerRequest struct {
+	Name        string
+	Email       string
+	Phone       *string
+	Address     *Address
+}
+
+type CreateSubscriptionRequest struct {
+	CustomerID   string
+	PriceID      string
+	Quantity     *int
+}
+
+type PaymentIntentResponse struct {
+	ID           string
+	Status       string
+	ClientSecret string
+}
+
+type PaymentResponse struct {
+	ID     string
+	Status string
+	Amount float64
+}
+
+type RefundResponse struct {
+	ID     string
+	Status string
+	Amount float64
+}
+
+type CustomerResponse struct {
+	ID    string
+	Name  string
+	Email string
+}
+
+type SubscriptionResponse struct {
+	ID         string
+	Status     string
+	CustomerID string
+}
+
+// Stub methods for Client
+func (c *Client) CreatePaymentIntent(ctx context.Context, req *CreatePaymentIntentRequest) (*PaymentIntentResponse, error) {
+	return &PaymentIntentResponse{
+		ID:           "pi_stub",
+		Status:       "requires_payment_method",
+		ClientSecret: "stub_secret",
+	}, nil
+}
+
+func (c *Client) ConfirmPayment(ctx context.Context, req *ConfirmPaymentRequest) (*PaymentResponse, error) {
+	return &PaymentResponse{
+		ID:     "payment_stub",
+		Status: "succeeded",
+		Amount: 100.0,
+	}, nil
+}
+
+func (c *Client) CapturePayment(ctx context.Context, req *CapturePaymentRequest) (*PaymentResponse, error) {
+	return &PaymentResponse{
+		ID:     "capture_stub",
+		Status: "succeeded",
+		Amount: 100.0,
+	}, nil
+}
+
+func (c *Client) RefundPayment(ctx context.Context, req *RefundRequest) (*RefundResponse, error) {
+	return &RefundResponse{
+		ID:     "refund_stub",
+		Status: "succeeded",
+		Amount: 100.0,
+	}, nil
+}
+
+func (c *Client) CreateCustomer(ctx context.Context, req *CreateCustomerRequest) (*CustomerResponse, error) {
+	return &CustomerResponse{
+		ID:    "cust_stub",
+		Name:  req.Name,
+		Email: req.Email,
+	}, nil
+}
+
+func (c *Client) CreateSubscription(ctx context.Context, req *CreateSubscriptionRequest) (*SubscriptionResponse, error) {
+	return &SubscriptionResponse{
+		ID:         "sub_stub",
+		Status:     "active",
+		CustomerID: req.CustomerID,
+	}, nil
+}
+
+// PaymentsConfig holds configuration for the payments service
+type PaymentsConfig struct {
+	// General settings
+	DefaultProvider  string `json:"default_provider"` // "stripe", "paypal", "square"
+	DefaultCurrency  string `json:"default_currency"`
+	WebhookSecret    string `json:"webhook_secret"`
+	
+	// Stripe configuration
+	StripePublishableKey string `json:"stripe_publishable_key"`
+	StripeSecretKey      string `json:"stripe_secret_key"`
+	StripeWebhookSecret  string `json:"stripe_webhook_secret"`
+	
+	// PayPal configuration
+	PayPalClientID     string `json:"paypal_client_id"`
+	PayPalClientSecret string `json:"paypal_client_secret"`
+	PayPalSandbox      bool   `json:"paypal_sandbox"`
+	
+	// Square configuration
+	SquareApplicationID string `json:"square_application_id"`
+	SquareAccessToken   string `json:"square_access_token"`
+	SquareLocationID    string `json:"square_location_id"`
+	SquareSandbox       bool   `json:"square_sandbox"`
+	
+	// Features
+	EnableRecurring     bool   `json:"enable_recurring"`
+	EnableRefunds       bool   `json:"enable_refunds"`
+	EnablePartialRefunds bool  `json:"enable_partial_refunds"`
+	MaxRefundDays       int    `json:"max_refund_days"`
+	
+	// Webhooks
+	WebhookURL string `json:"webhook_url"`
+}
+
+// PaymentsIntegration wraps the go-payments package for landscaping app
+type PaymentsIntegration struct {
+	client *Client
+	config PaymentsConfig
+	logger *slog.Logger
+}
+
+// NewPaymentsIntegration creates a new payments integration
+func NewPaymentsIntegration(config PaymentsConfig, logger *slog.Logger) (*PaymentsIntegration, error) {
+	// Create go-payments client with configuration
+	clientConfig := &Config{
+		DefaultProvider: config.DefaultProvider,
+		DefaultCurrency: config.DefaultCurrency,
+		WebhookSecret:   config.WebhookSecret,
+	}
+
+	client, err := NewClient(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create payments client: %w", err)
+	}
+
+	integration := &PaymentsIntegration{
+		client: client,
+		config: config,
+		logger: logger,
+	}
+
+	// Configure payment providers
+	if err := integration.configureProviders(); err != nil {
+		return nil, fmt.Errorf("failed to configure payment providers: %w", err)
+	}
+
+	return integration, nil
+}
+
+// GetClient returns the go-payments client
+func (p *PaymentsIntegration) GetClient() *Client {
+	return p.client
+}
+
+// CreatePaymentIntent creates a payment intent for a job/invoice
+func (p *PaymentsIntegration) CreatePaymentIntent(ctx context.Context, req *PaymentIntentRequest) (*PaymentIntentResponse, error) {
+	createReq := &CreatePaymentIntentRequest{
+		Amount:      req.Amount,
+		Currency:    req.Currency,
+		Description: req.Description,
+		Metadata:    req.Metadata,
+		CustomerID:  req.CustomerID,
+		PaymentMethodTypes: req.PaymentMethodTypes,
+		CaptureMethod: req.CaptureMethod,
+		SetupFutureUsage: req.SetupFutureUsage,
+	}
+
+	if req.CustomerEmail != "" {
+		createReq.CustomerEmail = req.CustomerEmail
+	}
+
+	if req.ShippingAddress != nil {
+		createReq.ShippingAddress = &Address{
+			Line1:      req.ShippingAddress.Line1,
+			Line2:      req.ShippingAddress.Line2,
+			City:       req.ShippingAddress.City,
+			State:      req.ShippingAddress.State,
+			PostalCode: req.ShippingAddress.PostalCode,
+			Country:    req.ShippingAddress.Country,
+		}
+	}
+
+	result, err := p.client.CreatePaymentIntent(ctx, createReq)
+	if err != nil {
+		p.logger.Error("Failed to create payment intent", "error", err, "amount", req.Amount)
+		return nil, fmt.Errorf("failed to create payment intent: %w", err)
+	}
+
+	response := &PaymentIntentResponse{
+		ID:           result.ID,
+		ClientSecret: result.ClientSecret,
+		Status:       result.Status,
+		Amount:       result.Amount,
+		Currency:     result.Currency,
+		CreatedAt:    result.CreatedAt,
+	}
+
+	p.logger.Info("Payment intent created successfully", "intent_id", result.ID, "amount", req.Amount)
+	return response, nil
+}
+
+// ConfirmPayment confirms a payment intent
+func (p *PaymentsIntegration) ConfirmPayment(ctx context.Context, req *ConfirmPaymentRequest) (*PaymentResponse, error) {
+	confirmReq := &ConfirmPaymentRequest{
+		PaymentIntentID: req.PaymentIntentID,
+		PaymentMethodID: req.PaymentMethodID,
+	}
+
+	result, err := p.client.ConfirmPayment(ctx, confirmReq)
+	if err != nil {
+		p.logger.Error("Failed to confirm payment", "error", err, "intent_id", req.PaymentIntentID)
+		return nil, fmt.Errorf("failed to confirm payment: %w", err)
+	}
+
+	response := &PaymentResponse{
+		ID:              result.ID,
+		Status:          result.Status,
+		Amount:          result.Amount,
+		Currency:        result.Currency,
+		ProcessedAt:     result.ProcessedAt,
+		PaymentMethodID: result.PaymentMethodID,
+		ReceiptURL:      result.ReceiptURL,
+		Metadata:        result.Metadata,
+	}
+
+	p.logger.Info("Payment confirmed successfully", "payment_id", result.ID, "amount", result.Amount)
+	return response, nil
+}
+
+// CapturePayment captures an authorized payment
+func (p *PaymentsIntegration) CapturePayment(ctx context.Context, req *CapturePaymentRequest) (*PaymentResponse, error) {
+	captureReq := &CapturePaymentRequest{
+		PaymentIntentID: req.PaymentIntentID,
+		Amount:          req.Amount,
+	}
+
+	result, err := p.client.CapturePayment(ctx, captureReq)
+	if err != nil {
+		p.logger.Error("Failed to capture payment", "error", err, "intent_id", req.PaymentIntentID)
+		return nil, fmt.Errorf("failed to capture payment: %w", err)
+	}
+
+	response := &PaymentResponse{
+		ID:          result.ID,
+		Status:      result.Status,
+		Amount:      result.Amount,
+		Currency:    result.Currency,
+		ProcessedAt: result.ProcessedAt,
+		ReceiptURL:  result.ReceiptURL,
+	}
+
+	p.logger.Info("Payment captured successfully", "payment_id", result.ID, "amount", result.Amount)
+	return response, nil
+}
+
+// RefundPayment refunds a payment
+func (p *PaymentsIntegration) RefundPayment(ctx context.Context, req *RefundRequest) (*RefundResponse, error) {
+	if !p.config.EnableRefunds {
+		return nil, fmt.Errorf("refunds are not enabled")
+	}
+
+	refundReq := &RefundRequest{
+		PaymentID: req.PaymentID,
+		Amount:    req.Amount,
+		Reason:    req.Reason,
+		Metadata:  req.Metadata,
+	}
+
+	result, err := p.client.RefundPayment(ctx, refundReq)
+	if err != nil {
+		p.logger.Error("Failed to refund payment", "error", err, "payment_id", req.PaymentID)
+		return nil, fmt.Errorf("failed to refund payment: %w", err)
+	}
+
+	response := &RefundResponse{
+		ID:          result.ID,
+		Status:      result.Status,
+		Amount:      result.Amount,
+		Currency:    result.Currency,
+		PaymentID:   result.PaymentID,
+		ProcessedAt: result.ProcessedAt,
+		Reason:      result.Reason,
+	}
+
+	p.logger.Info("Payment refunded successfully", "refund_id", result.ID, "amount", result.Amount)
+	return response, nil
+}
+
+// CreateCustomer creates a customer in the payment provider
+func (p *PaymentsIntegration) CreateCustomer(ctx context.Context, req *CreateCustomerRequest) (*CustomerResponse, error) {
+	createReq := &CreateCustomerRequest{
+		Email:       req.Email,
+		Name:        req.Name,
+		Phone:       req.Phone,
+		Description: req.Description,
+		Metadata:    req.Metadata,
+	}
+
+	if req.Address != nil {
+		createReq.Address = &Address{
+			Line1:      req.Address.Line1,
+			Line2:      req.Address.Line2,
+			City:       req.Address.City,
+			State:      req.Address.State,
+			PostalCode: req.Address.PostalCode,
+			Country:    req.Address.Country,
+		}
+	}
+
+	result, err := p.client.CreateCustomer(ctx, createReq)
+	if err != nil {
+		p.logger.Error("Failed to create customer", "error", err, "email", req.Email)
+		return nil, fmt.Errorf("failed to create customer: %w", err)
+	}
+
+	response := &CustomerResponse{
+		ID:          result.ID,
+		Email:       result.Email,
+		Name:        result.Name,
+		Phone:       result.Phone,
+		Description: result.Description,
+		CreatedAt:   result.CreatedAt,
+	}
+
+	p.logger.Info("Customer created successfully", "customer_id", result.ID, "email", req.Email)
+	return response, nil
+}
+
+// CreateSubscription creates a recurring subscription
+func (p *PaymentsIntegration) CreateSubscription(ctx context.Context, req *CreateSubscriptionRequest) (*SubscriptionResponse, error) {
+	if !p.config.EnableRecurring {
+		return nil, fmt.Errorf("recurring payments are not enabled")
+	}
+
+	createReq := &CreateSubscriptionRequest{
+		CustomerID:        req.CustomerID,
+		PriceID:           req.PriceID,
+		PaymentMethodID:   req.PaymentMethodID,
+		Description:       req.Description,
+		Metadata:          req.Metadata,
+		TrialPeriodDays:   req.TrialPeriodDays,
+		BillingCycleAnchor: req.BillingCycleAnchor,
+	}
+
+	result, err := p.client.CreateSubscription(ctx, createReq)
+	if err != nil {
+		p.logger.Error("Failed to create subscription", "error", err, "customer_id", req.CustomerID)
+		return nil, fmt.Errorf("failed to create subscription: %w", err)
+	}
+
+	response := &SubscriptionResponse{
+		ID:                 result.ID,
+		Status:             result.Status,
+		CustomerID:         result.CustomerID,
+		PriceID:           result.PriceID,
+		CurrentPeriodStart: result.CurrentPeriodStart,
+		CurrentPeriodEnd:   result.CurrentPeriodEnd,
+		CreatedAt:         result.CreatedAt,
+	}
+
+	p.logger.Info("Subscription created successfully", "subscription_id", result.ID, "customer_id", req.CustomerID)
+	return response, nil
+}
+
+// GetPaymentStatus gets the status of a payment
+func (p *PaymentsIntegration) GetPaymentStatus(ctx context.Context, paymentID string) (*PaymentStatusResponse, error) {
+	result, err := p.client.GetPayment(ctx, paymentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get payment status: %w", err)
+	}
+
+	response := &PaymentStatusResponse{
+		ID:              result.ID,
+		Status:          result.Status,
+		Amount:          result.Amount,
+		Currency:        result.Currency,
+		ProcessedAt:     result.ProcessedAt,
+		PaymentMethodID: result.PaymentMethodID,
+		FailureReason:   result.FailureReason,
+		ReceiptURL:      result.ReceiptURL,
+	}
+
+	return response, nil
+}
+
+// ProcessWebhook processes payment provider webhooks
+func (p *PaymentsIntegration) ProcessWebhook(ctx context.Context, payload []byte, signature string) (*WebhookEvent, error) {
+	event, err := p.client.ProcessWebhook(ctx, payload, signature)
+	if err != nil {
+		p.logger.Error("Failed to process webhook", "error", err)
+		return nil, fmt.Errorf("failed to process webhook: %w", err)
+	}
+
+	webhookEvent := &WebhookEvent{
+		ID:        event.ID,
+		Type:      event.Type,
+		Data:      event.Data,
+		CreatedAt: event.CreatedAt,
+	}
+
+	p.logger.Info("Webhook processed successfully", "event_id", event.ID, "type", event.Type)
+	return webhookEvent, nil
+}
+
+// CalculateFees calculates payment processing fees
+func (p *PaymentsIntegration) CalculateFees(amount float64, currency string, paymentMethod string) (*FeeCalculation, error) {
+	// This would use the payment provider's fee structure
+	// For now, we'll use simplified calculations
+	
+	var feePercentage float64
+	var fixedFee float64
+	
+	switch p.config.DefaultProvider {
+	case "stripe":
+		feePercentage = 0.029 // 2.9%
+		fixedFee = 0.30       // $0.30
+	case "paypal":
+		feePercentage = 0.029 // 2.9%
+		fixedFee = 0.30       // $0.30
+	case "square":
+		feePercentage = 0.026 // 2.6%
+		fixedFee = 0.10       // $0.10
+	default:
+		feePercentage = 0.03  // 3%
+		fixedFee = 0.30       // $0.30
+	}
+	
+	processingFee := (amount * feePercentage) + fixedFee
+	netAmount := amount - processingFee
+	
+	return &FeeCalculation{
+		GrossAmount:    amount,
+		ProcessingFee:  processingFee,
+		NetAmount:      netAmount,
+		FeePercentage:  feePercentage * 100, // Convert to percentage
+		FixedFee:       fixedFee,
+		Currency:       currency,
+	}, nil
+}
+
+// Private configuration methods
+
+func (p *PaymentsIntegration) configureProviders() error {
+	// Configure Stripe
+	if p.config.StripeSecretKey != "" {
+		stripeConfig := &stripe.Config{
+			PublishableKey: p.config.StripePublishableKey,
+			SecretKey:      p.config.StripeSecretKey,
+			WebhookSecret:  p.config.StripeWebhookSecret,
+		}
+		if err := p.client.ConfigureProvider("stripe", stripeConfig); err != nil {
+			return fmt.Errorf("failed to configure Stripe: %w", err)
+		}
+	}
+
+	// Configure PayPal
+	if p.config.PayPalClientID != "" {
+		paypalConfig := &paypal.Config{
+			ClientID:     p.config.PayPalClientID,
+			ClientSecret: p.config.PayPalClientSecret,
+			Sandbox:      p.config.PayPalSandbox,
+		}
+		if err := p.client.ConfigureProvider("paypal", paypalConfig); err != nil {
+			return fmt.Errorf("failed to configure PayPal: %w", err)
+		}
+	}
+
+	// Configure Square
+	if p.config.SquareAccessToken != "" {
+		squareConfig := &square.Config{
+			ApplicationID: p.config.SquareApplicationID,
+			AccessToken:   p.config.SquareAccessToken,
+			LocationID:    p.config.SquareLocationID,
+			Sandbox:       p.config.SquareSandbox,
+		}
+		if err := p.client.ConfigureProvider("square", squareConfig); err != nil {
+			return fmt.Errorf("failed to configure Square: %w", err)
+		}
+	}
+
+	return nil
+}

@@ -29,7 +29,6 @@ func NewDatabase(databaseURL string) (*Database, error) {
 
 // Repositories holds all repository interfaces
 type Repositories struct {
-	Tenant      TenantRepository
 	User        UserRepository
 	Customer    CustomerRepository
 	Property    PropertyRepository
@@ -44,7 +43,6 @@ type Repositories struct {
 // NewRepositories creates a new repositories instance
 func NewRepositories(db *Database) *Repositories {
 	return &Repositories{
-		Tenant:      NewTenantRepository(db),
 		User:        NewUserRepository(db),
 		Customer:    NewCustomerRepository(db),
 		Property:    NewPropertyRepository(db),
@@ -59,13 +57,6 @@ func NewRepositories(db *Database) *Repositories {
 
 // Repository interfaces
 
-type TenantRepository interface {
-	GetByID(id string) (*domain.Tenant, error)
-	GetBySubdomain(subdomain string) (*domain.Tenant, error)
-	Create(tenant *domain.Tenant) error
-	Update(tenant *domain.Tenant) error
-	Delete(id string) error
-}
 
 type UserRepository interface {
 	GetByID(tenantID, id string) (*domain.User, error)
@@ -151,9 +142,6 @@ type FileAttachmentRepository interface {
 
 // Placeholder implementations - these would be implemented with actual SQL queries
 
-func NewTenantRepository(db *Database) TenantRepository {
-	return &tenantRepository{db: db}
-}
 
 func NewUserRepository(db *Database) UserRepository {
 	return &userRepository{db: db}
@@ -192,7 +180,6 @@ func NewFileAttachmentRepository(db *Database) FileAttachmentRepository {
 }
 
 // Placeholder repository structs
-type tenantRepository struct{ db *Database }
 type userRepository struct{ db *Database }
 type customerRepository struct{ db *Database }
 type propertyRepository struct{ db *Database }
@@ -204,13 +191,6 @@ type equipmentRepository struct{ db *Database }
 type fileAttachmentRepository struct{ db *Database }
 
 // Placeholder method implementations (these would contain actual SQL queries)
-
-// Tenant repository methods
-func (r *tenantRepository) GetByID(id string) (*domain.Tenant, error) { return nil, fmt.Errorf("not implemented") }
-func (r *tenantRepository) GetBySubdomain(subdomain string) (*domain.Tenant, error) { return nil, fmt.Errorf("not implemented") }
-func (r *tenantRepository) Create(tenant *domain.Tenant) error { return fmt.Errorf("not implemented") }
-func (r *tenantRepository) Update(tenant *domain.Tenant) error { return fmt.Errorf("not implemented") }
-func (r *tenantRepository) Delete(id string) error { return fmt.Errorf("not implemented") }
 
 // User repository methods
 func (r *userRepository) GetByID(tenantID, id string) (*domain.User, error) { return nil, fmt.Errorf("not implemented") }

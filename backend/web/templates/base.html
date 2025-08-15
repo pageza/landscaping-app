@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{if .Title}}{{.Title}}{{else}}LandscapePro{{end}}</title>
+    
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    
+    <!-- HTMX Extensions -->
+    <script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
+    <script src="https://unpkg.com/htmx.org/dist/ext/loading-states.js"></script>
+    
+    <!-- Alpine.js for small client-side interactions -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- TailwindCSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/custom.css">
+    
+    <!-- Custom config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#10b981',
+                        secondary: '#059669',
+                        accent: '#34d399',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        /* HTMX loading states */
+        .htmx-indicator {
+            display: none;
+        }
+        .htmx-request .htmx-indicator {
+            display: inline-block;
+        }
+        .htmx-request.htmx-indicator {
+            display: inline-block;
+        }
+        
+        /* Smooth transitions */
+        [x-cloak] { 
+            display: none !important; 
+        }
+        
+        .htmx-settling {
+            opacity: 0.5;
+            transition: opacity 300ms ease-out;
+        }
+        
+        .htmx-added {
+            opacity: 0;
+            animation: fadeIn 300ms ease-out forwards;
+        }
+        
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+    </style>
+    
+    {{block "head" .}}{{end}}
+</head>
+<body class="bg-gray-50 text-gray-900">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <a href="/" class="text-2xl font-bold text-primary">
+                            🌿 LandscapePro
+                        </a>
+                    </div>
+                    <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                        <a href="/services" class="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary">
+                            Services
+                        </a>
+                        <a href="/booking" class="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary">
+                            Book Now
+                        </a>
+                        <a href="/about" class="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary">
+                            About
+                        </a>
+                        <a href="/contact" class="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-primary">
+                            Contact
+                        </a>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div id="auth-buttons" hx-get="/api/auth/status" hx-trigger="load" hx-swap="innerHTML">
+                        <a href="/login" class="text-gray-700 hover:text-primary px-3 py-2 rounded-md text-sm font-medium">
+                            Login
+                        </a>
+                        <a href="/signup" class="bg-primary text-white hover:bg-secondary px-4 py-2 rounded-md text-sm font-medium">
+                            Sign Up
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        {{if eq .Page "index"}}
+            {{template "index-content" .}}
+        {{else if eq .Page "services"}}
+            {{template "services-content" .}}
+        {{else if eq .Page "booking"}}
+            {{template "booking-content" .}}
+        {{else if eq .Page "service-detail"}}
+            {{template "service-detail-content" .}}
+        {{else if eq .Page "login"}}
+            {{template "login-content" .}}
+        {{else if eq .Page "signup"}}
+            {{template "signup-content" .}}
+        {{else if eq .Page "admin-dashboard"}}
+            {{template "admin-dashboard-content" .}}
+        {{else}}
+            {{block "content" .}}{{end}}
+        {{end}}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-white mt-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+                <div>
+                    <h3 class="text-lg font-bold mb-4">LandscapePro</h3>
+                    <p class="text-gray-400">Professional landscaping services for your home and business.</p>
+                </div>
+                <div>
+                    <h4 class="font-semibold mb-4">Services</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="/services/lawn-care" class="hover:text-white">Lawn Care</a></li>
+                        <li><a href="/services/garden-design" class="hover:text-white">Garden Design</a></li>
+                        <li><a href="/services/tree-service" class="hover:text-white">Tree Service</a></li>
+                        <li><a href="/services/hardscaping" class="hover:text-white">Hardscaping</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="font-semibold mb-4">Company</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="/about" class="hover:text-white">About Us</a></li>
+                        <li><a href="/portfolio" class="hover:text-white">Portfolio</a></li>
+                        <li><a href="/testimonials" class="hover:text-white">Testimonials</a></li>
+                        <li><a href="/careers" class="hover:text-white">Careers</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="font-semibold mb-4">Contact</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li>📞 (555) 123-4567</li>
+                        <li>✉️ info@landscapepro.com</li>
+                        <li>📍 123 Green Street, Garden City</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="mt-8 pt-8 border-t border-gray-700 text-center text-gray-400">
+                <p>&copy; 2024 LandscapePro. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Toast notifications -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50"></div>
+
+    <!-- Booking Modal Container -->
+    <div id="booking-modal"></div>
+
+    <!-- Default JS -->
+    <script src="/static/js/app.js"></script>
+    {{block "scripts" .}}{{end}}
+</body>
+</html>

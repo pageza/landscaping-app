@@ -1,0 +1,597 @@
+package ai
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/pageza/go-llm"
+
+	"github.com/pageza/landscaping-app/backend/internal/integrations"
+	"github.com/pageza/landscaping-app/backend/internal/services"
+	aicontext "github.com/pageza/landscaping-app/backend/internal/ai/context"
+)
+
+// Assistant interface defines the core AI assistant functionality
+type Assistant interface {
+	// Chat operations
+	Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
+	
+	// Conversation management
+	StartConversation(ctx context.Context, assistantType aicontext.AssistantType, userID *uuid.UUID, customerID *uuid.UUID) (*aicontext.ConversationContext, error)
+	GetConversation(ctx context.Context, conversationID uuid.UUID) (*aicontext.ConversationContext, error)
+	EndConversation(ctx context.Context, conversationID uuid.UUID) error
+	
+	// Message history
+	GetMessages(ctx context.Context, conversationID uuid.UUID, limit int, offset int) ([]*aicontext.Message, error)
+	
+	// Function/tool management
+	RegisterFunction(name string, function *Function) error
+	UnregisterFunction(name string) error
+	GetAvailableFunctions(assistantType aicontext.AssistantType) []*Function
+	
+	// Configuration
+	UpdateConfig(config *AssistantConfig) error
+	GetConfig() *AssistantConfig
+	
+	// Metrics and monitoring
+	GetMetrics(ctx context.Context, tenantID uuid.UUID, startDate, endDate time.Time) (*aicontext.AIMetrics, error)
+	GetConversationSummary(ctx context.Context, conversationID uuid.UUID) (*aicontext.ConversationSummary, error)
+}
+
+// ConversationStore interface (aliasing the one from context package to avoid import cycles)
+type ConversationStore = aicontext.ConversationStore
+
+// AIAssistant implements the Assistant interface
+type AIAssistant struct {
+	config       *AssistantConfig
+	llmClient    *integrations.LLMIntegration
+	services     *services.Services
+	logger       *slog.Logger
+	functions    map[string]*Function
+	contextStore ConversationStore
+	rateLimiter  RateLimiter
+}
+
+// NewAIAssistant creates a new AI assistant instance
+func NewAIAssistant(
+	config *AssistantConfig,
+	llmClient *integrations.LLMIntegration,
+	services *services.Services,
+	contextStore ConversationStore,
+	rateLimiter RateLimiter,
+	logger *slog.Logger,
+) *AIAssistant {
+	assistant := &AIAssistant{
+		config:       config,
+		llmClient:    llmClient,
+		services:     services,
+		logger:       logger,
+		functions:    make(map[string]*Function),
+		contextStore: contextStore,
+		rateLimiter:  rateLimiter,
+	}
+
+	// Register default functions
+	assistant.registerDefaultFunctions()
+
+	return assistant
+}
+
+// Chat handles a chat request with the AI assistant
+func (a *AIAssistant) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+	// Get conversation context
+	conversation, err := a.getOrCreateConversation(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation: %w", err)
+	}
+
+	// Check rate limits
+	if err := a.rateLimiter.CheckLimit(ctx, conversation.TenantID, conversation.UserID); err != nil {
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	// Apply content moderation if enabled
+	if a.config.Security.EnableModeration {
+		if err := a.moderateContent(ctx, req.Message); err != nil {
+			return nil, fmt.Errorf("content moderation failed: %w", err)
+		}
+	}
+
+	// Build conversation history
+	messages, err := a.buildConversationHistory(ctx, conversation, req.Message)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build conversation history: %w", err)
+	}
+
+	// Get assistant configuration
+	assistantConfig := a.getAssistantConfig(conversation.AssistantType)
+	
+	// Prepare LLM request
+	llmReq := &llm.ChatCompletionRequest{
+		Model:       req.Model,
+		Messages:    messages,
+		Temperature: req.Temperature,
+		MaxTokens:   req.MaxTokens,
+		Tools:       a.buildToolDefinitions(conversation.AssistantType),
+	}
+
+	// Use defaults if not specified
+	if llmReq.Model == "" {
+		llmReq.Model = assistantConfig.Model
+	}
+	if llmReq.Temperature == nil {
+		llmReq.Temperature = &assistantConfig.Temperature
+	}
+	if llmReq.MaxTokens == nil {
+		llmReq.MaxTokens = &assistantConfig.MaxTokens
+	}
+
+	// Call LLM
+	llmResponse, err := a.llmClient.GetClient().CreateChatCompletion(ctx, llmReq)
+	if err != nil {
+		return nil, fmt.Errorf("LLM request failed: %w", err)
+	}
+
+	// Process response
+	response, err := a.processLLMResponse(ctx, conversation, req, llmResponse)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process LLM response: %w", err)
+	}
+
+	// Save messages to context store
+	if err := a.saveMessages(ctx, conversation, req, response); err != nil {
+		a.logger.Error("Failed to save messages", "error", err)
+	}
+
+	// Update rate limiter with token usage
+	if response.Usage != nil {
+		a.rateLimiter.RecordUsage(ctx, conversation.TenantID, conversation.UserID, response.Usage.TotalTokens)
+	}
+
+	return response, nil
+}
+
+// StartConversation starts a new conversation
+func (a *AIAssistant) StartConversation(ctx context.Context, assistantType AssistantType, userID *uuid.UUID, customerID *uuid.UUID) (*ConversationContext, error) {
+	conversation := &ConversationContext{
+		ConversationID: uuid.New(),
+		TenantID:       a.getTenantIDFromContext(ctx),
+		UserID:         userID,
+		CustomerID:     customerID,
+		AssistantType:  assistantType,
+		SessionData:    make(map[string]interface{}),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+
+	if err := a.contextStore.SaveConversation(ctx, conversation); err != nil {
+		return nil, fmt.Errorf("failed to save conversation: %w", err)
+	}
+
+	a.logger.Info("Started new conversation",
+		"conversation_id", conversation.ConversationID,
+		"assistant_type", assistantType,
+		"tenant_id", conversation.TenantID)
+
+	return conversation, nil
+}
+
+// GetConversation retrieves a conversation by ID
+func (a *AIAssistant) GetConversation(ctx context.Context, conversationID uuid.UUID) (*ConversationContext, error) {
+	return a.contextStore.GetConversation(ctx, conversationID)
+}
+
+// EndConversation ends a conversation and generates a summary
+func (a *AIAssistant) EndConversation(ctx context.Context, conversationID uuid.UUID) error {
+	conversation, err := a.contextStore.GetConversation(ctx, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to get conversation: %w", err)
+	}
+
+	// Generate conversation summary
+	summary, err := a.generateConversationSummary(ctx, conversation)
+	if err != nil {
+		a.logger.Error("Failed to generate conversation summary", "error", err)
+	} else {
+		if err := a.contextStore.SaveConversationSummary(ctx, summary); err != nil {
+			a.logger.Error("Failed to save conversation summary", "error", err)
+		}
+	}
+
+	// Mark conversation as ended
+	if err := a.contextStore.EndConversation(ctx, conversationID); err != nil {
+		return fmt.Errorf("failed to end conversation: %w", err)
+	}
+
+	a.logger.Info("Ended conversation", "conversation_id", conversationID)
+	return nil
+}
+
+// GetMessages retrieves messages for a conversation
+func (a *AIAssistant) GetMessages(ctx context.Context, conversationID uuid.UUID, limit int, offset int) ([]*Message, error) {
+	return a.contextStore.GetMessages(ctx, conversationID, limit, offset)
+}
+
+// RegisterFunction registers a new function/tool
+func (a *AIAssistant) RegisterFunction(name string, function *Function) error {
+	a.functions[name] = function
+	a.logger.Info("Registered function", "name", name, "description", function.Description)
+	return nil
+}
+
+// UnregisterFunction removes a function/tool
+func (a *AIAssistant) UnregisterFunction(name string) error {
+	delete(a.functions, name)
+	a.logger.Info("Unregistered function", "name", name)
+	return nil
+}
+
+// GetAvailableFunctions returns available functions for an assistant type
+func (a *AIAssistant) GetAvailableFunctions(assistantType AssistantType) []*Function {
+	var availableFunctions []*Function
+	
+	var configuredFunctions []string
+	switch assistantType {
+	case CustomerAssistant:
+		configuredFunctions = a.config.CustomerAssistant.Tools
+	case BusinessAssistant:
+		configuredFunctions = a.config.BusinessAssistant.Tools
+	}
+
+	for _, funcName := range configuredFunctions {
+		if function, exists := a.functions[funcName]; exists {
+			availableFunctions = append(availableFunctions, function)
+		}
+	}
+
+	return availableFunctions
+}
+
+// UpdateConfig updates the assistant configuration
+func (a *AIAssistant) UpdateConfig(config *AssistantConfig) error {
+	a.config = config
+	a.logger.Info("Updated assistant configuration")
+	return nil
+}
+
+// GetConfig returns the current configuration
+func (a *AIAssistant) GetConfig() *AssistantConfig {
+	return a.config
+}
+
+// GetMetrics retrieves AI usage metrics
+func (a *AIAssistant) GetMetrics(ctx context.Context, tenantID uuid.UUID, startDate, endDate time.Time) (*AIMetrics, error) {
+	return a.contextStore.GetMetrics(ctx, tenantID, startDate, endDate)
+}
+
+// GetConversationSummary retrieves or generates a conversation summary
+func (a *AIAssistant) GetConversationSummary(ctx context.Context, conversationID uuid.UUID) (*ConversationSummary, error) {
+	// Try to get existing summary first
+	summary, err := a.contextStore.GetConversationSummary(ctx, conversationID)
+	if err == nil {
+		return summary, nil
+	}
+
+	// Generate new summary if not found
+	conversation, err := a.contextStore.GetConversation(ctx, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation: %w", err)
+	}
+
+	return a.generateConversationSummary(ctx, conversation)
+}
+
+// GetConversationStore returns the conversation store (for handlers)
+func (a *AIAssistant) GetConversationStore() ConversationStore {
+	return a.contextStore
+}
+
+// Private helper methods
+
+func (a *AIAssistant) getOrCreateConversation(ctx context.Context, req *ChatRequest) (*ConversationContext, error) {
+	if req.ConversationID != uuid.Nil {
+		return a.contextStore.GetConversation(ctx, req.ConversationID)
+	}
+
+	// Determine assistant type and user context from request
+	assistantType := a.determineAssistantType(ctx, req)
+	userID, customerID := a.getUserContext(ctx, req)
+
+	return a.StartConversation(ctx, assistantType, userID, customerID)
+}
+
+func (a *AIAssistant) buildConversationHistory(ctx context.Context, conversation *ConversationContext, userMessage string) ([]llm.Message, error) {
+	var messages []llm.Message
+
+	// Add system prompt
+	assistantConfig := a.getAssistantConfig(conversation.AssistantType)
+	if assistantConfig.SystemPrompt != "" {
+		messages = append(messages, llm.Message{
+			Role:    "system",
+			Content: assistantConfig.SystemPrompt,
+		})
+	}
+
+	// Get conversation history
+	history, err := a.contextStore.GetMessages(ctx, conversation.ConversationID, 20, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation history: %w", err)
+	}
+
+	// Convert history to LLM messages
+	for _, msg := range history {
+		messages = append(messages, llm.Message{
+			Role:    string(msg.Role),
+			Content: msg.Content,
+		})
+	}
+
+	// Add current user message
+	messages = append(messages, llm.Message{
+		Role:    "user",
+		Content: userMessage,
+	})
+
+	return messages, nil
+}
+
+func (a *AIAssistant) buildToolDefinitions(assistantType AssistantType) []llm.Tool {
+	var tools []llm.Tool
+	functions := a.GetAvailableFunctions(assistantType)
+
+	for _, function := range functions {
+		tools = append(tools, llm.Tool{
+			Type: "function",
+			Function: llm.FunctionDefinition{
+				Name:        function.Name,
+				Description: function.Description,
+				Parameters:  function.Parameters,
+			},
+		})
+	}
+
+	return tools
+}
+
+func (a *AIAssistant) processLLMResponse(ctx context.Context, conversation *ConversationContext, req *ChatRequest, llmResponse *llm.ChatCompletionResponse) (*ChatResponse, error) {
+	response := &ChatResponse{
+		ConversationID: conversation.ConversationID,
+		MessageID:      uuid.New(),
+		Content:        llmResponse.Choices[0].Message.Content,
+		Metadata:       make(map[string]interface{}),
+	}
+
+	// Add usage information
+	if llmResponse.Usage != nil {
+		response.Usage = &TokenUsage{
+			PromptTokens:     llmResponse.Usage.PromptTokens,
+			CompletionTokens: llmResponse.Usage.CompletionTokens,
+			TotalTokens:      llmResponse.Usage.TotalTokens,
+		}
+	}
+
+	// Process tool calls if present
+	if len(llmResponse.Choices[0].Message.ToolCalls) > 0 {
+		toolCalls, err := a.processToolCalls(ctx, conversation, llmResponse.Choices[0].Message.ToolCalls)
+		if err != nil {
+			a.logger.Error("Failed to process tool calls", "error", err)
+		} else {
+			response.ToolCalls = toolCalls
+		}
+	}
+
+	return response, nil
+}
+
+func (a *AIAssistant) processToolCalls(ctx context.Context, conversation *ConversationContext, llmToolCalls []llm.ToolCall) ([]ToolCall, error) {
+	var toolCalls []ToolCall
+
+	for _, llmCall := range llmToolCalls {
+		// Convert LLM tool call to our format
+		toolCall := ToolCall{
+			ID:   llmCall.ID,
+			Type: llmCall.Type,
+			Function: FunctionCall{
+				Name:      llmCall.Function.Name,
+				Arguments: make(map[string]interface{}),
+			},
+		}
+
+		// Parse function arguments
+		if err := json.Unmarshal([]byte(llmCall.Function.Arguments), &toolCall.Function.Arguments); err != nil {
+			a.logger.Error("Failed to parse tool call arguments", "error", err, "arguments", llmCall.Function.Arguments)
+			continue
+		}
+
+		// Execute the function
+		if function, exists := a.functions[toolCall.Function.Name]; exists {
+			result, err := function.Handler(ctx, toolCall.Function.Arguments)
+			if err != nil {
+				a.logger.Error("Tool call failed", "function", toolCall.Function.Name, "error", err)
+				// Continue with error result
+			}
+
+			// Add result metadata
+			toolCall.Metadata = map[string]interface{}{
+				"executed_at": time.Now(),
+				"success":     err == nil,
+			}
+			if err != nil {
+				toolCall.Metadata["error"] = err.Error()
+			} else {
+				toolCall.Metadata["result"] = result
+			}
+		}
+
+		toolCalls = append(toolCalls, toolCall)
+	}
+
+	return toolCalls, nil
+}
+
+func (a *AIAssistant) saveMessages(ctx context.Context, conversation *ConversationContext, req *ChatRequest, response *ChatResponse) error {
+	// Save user message
+	userMessage := &Message{
+		ID:             uuid.New(),
+		ConversationID: conversation.ConversationID,
+		Role:           RoleUser,
+		Content:        req.Message,
+		CreatedAt:      time.Now(),
+	}
+
+	if err := a.contextStore.SaveMessage(ctx, userMessage); err != nil {
+		return fmt.Errorf("failed to save user message: %w", err)
+	}
+
+	// Save assistant response
+	assistantMessage := &Message{
+		ID:             response.MessageID,
+		ConversationID: conversation.ConversationID,
+		Role:           RoleAssistant,
+		Content:        response.Content,
+		ToolCalls:      response.ToolCalls,
+		Metadata:       response.Metadata,
+		CreatedAt:      time.Now(),
+	}
+
+	if err := a.contextStore.SaveMessage(ctx, assistantMessage); err != nil {
+		return fmt.Errorf("failed to save assistant message: %w", err)
+	}
+
+	return nil
+}
+
+func (a *AIAssistant) generateConversationSummary(ctx context.Context, conversation *ConversationContext) (*ConversationSummary, error) {
+	messages, err := a.contextStore.GetMessages(ctx, conversation.ConversationID, 0, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get messages: %w", err)
+	}
+
+	// Build conversation text for summarization
+	var conversationText string
+	totalTokens := 0
+	for _, msg := range messages {
+		conversationText += fmt.Sprintf("%s: %s\n", msg.Role, msg.Content)
+		// Rough token estimation
+		totalTokens += len(msg.Content) / 4
+	}
+
+	// Generate summary using LLM
+	summaryPrompt := fmt.Sprintf("Summarize the following customer service conversation. Identify key topics, resolved issues, and any pending actions:\n\n%s", conversationText)
+	
+	summaryReq := &llm.ChatCompletionRequest{
+		Model: a.config.BusinessAssistant.Model,
+		Messages: []llm.Message{
+			{Role: "system", Content: "You are a helpful assistant that summarizes customer service conversations."},
+			{Role: "user", Content: summaryPrompt},
+		},
+		Temperature: &[]float64{0.3}[0], // Lower temperature for factual summaries
+		MaxTokens:   &[]int{500}[0],
+	}
+
+	summaryResponse, err := a.llmClient.GetClient().CreateChatCompletion(ctx, summaryReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate summary: %w", err)
+	}
+
+	summary := &ConversationSummary{
+		ConversationID: conversation.ConversationID,
+		TotalMessages:  len(messages),
+		TotalTokens:    totalTokens,
+		StartTime:      conversation.CreatedAt,
+		LastActivity:   conversation.UpdatedAt,
+		Summary:        summaryResponse.Choices[0].Message.Content,
+		Metadata:       make(map[string]interface{}),
+	}
+
+	return summary, nil
+}
+
+func (a *AIAssistant) moderateContent(ctx context.Context, content string) error {
+	if !a.config.Security.EnableModeration {
+		return nil
+	}
+
+	// Check blocked keywords
+	for _, keyword := range a.config.Security.BlockedKeywords {
+		if contains(content, keyword) {
+			return fmt.Errorf("content contains blocked keyword: %s", keyword)
+		}
+	}
+
+	// Use LLM moderation if available
+	moderationReq := &llm.ModerationRequest{
+		Input: content,
+	}
+
+	moderationResponse, err := a.llmClient.GetClient().CreateModeration(ctx, moderationReq)
+	if err != nil {
+		a.logger.Warn("Moderation request failed", "error", err)
+		return nil // Don't fail the request if moderation service is down
+	}
+
+	if moderationResponse.Flagged {
+		return fmt.Errorf("content flagged by moderation service")
+	}
+
+	return nil
+}
+
+func (a *AIAssistant) getAssistantConfig(assistantType AssistantType) *CustomerAssistantConfig {
+	switch assistantType {
+	case CustomerAssistant:
+		return &a.config.CustomerAssistant
+	case BusinessAssistant:
+		// Convert BusinessAssistantConfig to CustomerAssistantConfig for compatibility
+		return &CustomerAssistantConfig{
+			Enabled:      a.config.BusinessAssistant.Enabled,
+			Model:        a.config.BusinessAssistant.Model,
+			Temperature:  a.config.BusinessAssistant.Temperature,
+			MaxTokens:    a.config.BusinessAssistant.MaxTokens,
+			SystemPrompt: a.config.BusinessAssistant.SystemPrompt,
+			Tools:        a.config.BusinessAssistant.Tools,
+		}
+	}
+	return &a.config.CustomerAssistant
+}
+
+func (a *AIAssistant) determineAssistantType(ctx context.Context, req *ChatRequest) AssistantType {
+	// This would typically check user role or request context
+	// For now, default to customer assistant
+	return CustomerAssistant
+}
+
+func (a *AIAssistant) getUserContext(ctx context.Context, req *ChatRequest) (*uuid.UUID, *uuid.UUID) {
+	// Extract user and customer IDs from context
+	// This would typically come from JWT claims or request headers
+	return nil, nil
+}
+
+func (a *AIAssistant) getTenantIDFromContext(ctx context.Context) uuid.UUID {
+	// Extract tenant ID from context
+	// This would typically come from middleware
+	return uuid.New() // Placeholder
+}
+
+func (a *AIAssistant) registerDefaultFunctions() {
+	// Default functions will be registered here
+	// We'll implement specific functions in separate files
+}
+
+// Helper function
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsHelper(s, substr)))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 1; i < len(s)-len(substr)+1; i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

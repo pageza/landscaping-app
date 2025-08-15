@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/pageza/landscaping-app/backend/internal/domain"
 )
 
@@ -124,28 +125,45 @@ func (tm *TenantManager) AddTenantFilter(query string, tenantID string) string {
 
 // TenantResolver resolves tenant information from various sources
 type TenantResolver struct {
-	// In a real implementation, this would include database repositories
+	tenantService TenantService
 }
 
 // NewTenantResolver creates a new tenant resolver
-func NewTenantResolver() *TenantResolver {
-	return &TenantResolver{}
+func NewTenantResolver(tenantService TenantService) *TenantResolver {
+	return &TenantResolver{
+		tenantService: tenantService,
+	}
 }
 
 // ResolveFromSubdomain resolves tenant from subdomain
 func (tr *TenantResolver) ResolveFromSubdomain(subdomain string) (*domain.Tenant, error) {
-	// TODO: Implement database lookup
-	return nil, fmt.Errorf("not implemented")
+	enhancedTenant, err := tr.tenantService.GetTenantBySubdomain(context.Background(), subdomain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve tenant from subdomain: %w", err)
+	}
+	return &enhancedTenant.Tenant, nil
 }
 
 // ResolveFromHeader resolves tenant from HTTP header
 func (tr *TenantResolver) ResolveFromHeader(tenantHeader string) (*domain.Tenant, error) {
-	// TODO: Implement database lookup
-	return nil, fmt.Errorf("not implemented")
+	// Parse UUID from header
+	tenantID, err := uuid.Parse(tenantHeader)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tenant ID in header: %w", err)
+	}
+
+	enhancedTenant, err := tr.tenantService.GetTenant(context.Background(), tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve tenant from header: %w", err)
+	}
+	return &enhancedTenant.Tenant, nil
 }
 
-// ResolveFromToken resolves tenant from JWT token
-func (tr *TenantResolver) ResolveFromToken(token string) (*domain.Tenant, error) {
-	// TODO: Implement JWT parsing and database lookup
-	return nil, fmt.Errorf("not implemented")
+// ResolveFromDomain resolves tenant from custom domain
+func (tr *TenantResolver) ResolveFromDomain(domain string) (*domain.Tenant, error) {
+	enhancedTenant, err := tr.tenantService.GetTenantByDomain(context.Background(), domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve tenant from domain: %w", err)
+	}
+	return &enhancedTenant.Tenant, nil
 }

@@ -1,0 +1,201 @@
+{{define "title"}}Book Service - LandscapePro{{end}}
+
+{{define "booking-content"}}
+<!-- Booking Hero -->
+<section class="bg-gradient-to-br from-green-50 to-green-100 py-16">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <h1 class="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
+            Book Your Service
+        </h1>
+        <p class="text-xl text-gray-700">
+            Schedule your landscaping service in just a few easy steps
+        </p>
+    </div>
+</section>
+
+<!-- Booking Form -->
+<section class="py-16">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="bg-white rounded-lg shadow-lg p-8">
+            <form hx-post="/api/booking/submit" 
+                  hx-target="#booking-result" 
+                  hx-swap="innerHTML"
+                  hx-ext="json-enc"
+                  id="booking-form"
+                  class="space-y-6">
+                
+                <!-- Personal Information -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            First Name *
+                        </label>
+                        <input type="text" name="first_name" required 
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Last Name *
+                        </label>
+                        <input type="text" name="last_name" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Email Address *
+                        </label>
+                        <input type="email" name="email" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Phone Number *
+                        </label>
+                        <input type="tel" name="phone" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                </div>
+
+                <!-- Service Information -->
+                <div class="border-t pt-6">
+                    <h3 class="text-lg font-semibold mb-4">Service Details</h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Service Type *
+                            </label>
+                            <select name="service_type" required
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                                <option value="">Select a service</option>
+                                <option value="lawn_care">Lawn Care & Maintenance</option>
+                                <option value="garden_design">Garden Design & Installation</option>
+                                <option value="tree_service">Tree Service & Removal</option>
+                                <option value="hardscaping">Hardscaping & Patios</option>
+                                <option value="irrigation">Irrigation Systems</option>
+                                <option value="snow_removal">Snow Removal</option>
+                                <option value="consultation">Free Consultation</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Property Size
+                            </label>
+                            <select name="property_size"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                                <option value="">Select size</option>
+                                <option value="small">Small (Under 5,000 sq ft)</option>
+                                <option value="medium">Medium (5,000-15,000 sq ft)</option>
+                                <option value="large">Large (15,000+ sq ft)</option>
+                                <option value="commercial">Commercial Property</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Preferred Date
+                            </label>
+                            <input type="date" name="preferred_date"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Budget Range
+                            </label>
+                            <select name="budget"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                                <option value="">Select budget</option>
+                                <option value="under_500">Under $500</option>
+                                <option value="500_1000">$500 - $1,000</option>
+                                <option value="1000_2500">$1,000 - $2,500</option>
+                                <option value="2500_5000">$2,500 - $5,000</option>
+                                <option value="over_5000">Over $5,000</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Property Address -->
+                <div class="border-t pt-6">
+                    <h3 class="text-lg font-semibold mb-4">Property Address</h3>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Street Address *
+                            </label>
+                            <input type="text" name="address" required
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    City *
+                                </label>
+                                <input type="text" name="city" required
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    State *
+                                </label>
+                                <input type="text" name="state" required
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    ZIP Code *
+                                </label>
+                                <input type="text" name="zip_code" required
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Additional Details -->
+                <div class="border-t pt-6">
+                    <h3 class="text-lg font-semibold mb-4">Additional Information</h3>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Project Description
+                        </label>
+                        <textarea name="description" rows="4"
+                                  placeholder="Please describe your landscaping needs, any specific requirements, or questions you have..."
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"></textarea>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <div class="border-t pt-6">
+                    <button type="submit" 
+                            class="w-full bg-primary text-white py-3 rounded-md font-semibold hover:bg-secondary transition">
+                        Submit Booking Request
+                        <span class="htmx-indicator ml-2">
+                            <svg class="animate-spin h-4 w-4 inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </span>
+                    </button>
+                </div>
+                
+                <div id="booking-result" class="mt-6"></div>
+            </form>
+        </div>
+    </div>
+</section>
+{{end}}
+
+{{define "scripts"}}
+<script src="/static/js/app.js"></script>
+{{end}}

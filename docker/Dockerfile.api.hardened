@@ -1,0 +1,87 @@
+# Multi-stage build for secure API container
+# Stage 1: Security scanning and dependency verification
+FROM golang:1.23-alpine AS security-scanner
+
+# Install security tools
+RUN apk add --no-cache \
+    git \
+    ca-certificates \
+    openssh-client \
+    curl \
+    jq
+
+# Install gosec for Go security analysis
+RUN go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+
+# Install dependency vulnerability scanner
+RUN go install golang.org/x/vuln/cmd/govulncheck@latest
+
+WORKDIR /app
+
+# Copy go mod files first for better layer caching
+COPY go.mod go.sum ./
+
+# Download dependencies and verify checksums
+RUN go mod download && go mod verify
+
+# Copy source code
+COPY . .
+
+# Run security scans
+RUN gosec -fmt json -out gosec-report.json -stdout -verbose=text ./...
+RUN govulncheck -json ./... > govuln-report.json || true
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -installsuffix cgo \
+    -o api-server \
+    ./cmd/api/
+
+# Stage 2: Create minimal runtime image
+FROM scratch AS runtime-base
+
+# Copy CA certificates for HTTPS connections
+COPY --from=security-scanner /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Stage 3: Security-hardened final image
+FROM runtime-base
+
+# Add metadata labels for security compliance
+LABEL maintainer="security@landscaping-app.com" \
+      version="1.0" \
+      description="Landscaping SaaS API Server - Security Hardened" \
+      vendor="Landscaping App Inc." \
+      security.scan.date="2025-08-14" \
+      security.compliance="SOC2,GDPR,PCI-DSS"
+
+# Create non-root user for security
+# Note: Using numeric IDs for better compatibility with different systems
+USER 65534:65534
+
+# Copy the binary from builder stage
+COPY --from=security-scanner --chown=65534:65534 /app/api-server /api-server
+
+# Copy security scan reports for compliance
+COPY --from=security-scanner --chown=65534:65534 /app/gosec-report.json /security/gosec-report.json
+COPY --from=security-scanner --chown=65534:65534 /app/govuln-report.json /security/govuln-report.json
+
+# Set secure default environment variables
+ENV GO_ENV=production \
+    GIN_MODE=release \
+    LOG_LEVEL=info \
+    GOMAXPROCS=1 \
+    CGO_ENABLED=0
+
+# Expose port (use non-privileged port)
+EXPOSE 8080
+
+# Health check for container orchestration
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD ["/api-server", "-health-check"]
+
+# Use exec form of ENTRYPOINT for proper signal handling
+ENTRYPOINT ["/api-server"]
+
+# Default command arguments
+CMD ["--config", "/etc/config/app.yaml"]

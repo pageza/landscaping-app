@@ -1,0 +1,95 @@
+/* Custom styles for the landscaping app */
+
+/* Enhanced HTMX animations */
+.htmx-swapping {
+    opacity: 0;
+    transition: opacity 250ms ease-in-out;
+}
+
+.htmx-settling {
+    opacity: 1;
+}
+
+/* Service card hover effects */
+.service-card {
+    transition: all 0.3s ease;
+    transform: translateY(0);
+}
+
+.service-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Quote calculator animations */
+.quote-form input:focus,
+.quote-form select:focus {
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+}
+
+/* Loading spinner */
+.spinner {
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #10b981;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Modal backdrop blur */
+.modal-backdrop {
+    backdrop-filter: blur(4px);
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+/* Toast notifications */
+.toast {
+    transform: translateX(100%);
+    transition: transform 0.3s ease-in-out;
+}
+
+.toast.show {
+    transform: translateX(0);
+}
+
+/* Custom button styles */
+.btn-primary {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+/* Testimonial cards */
+.testimonial-card {
+    background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+    border: 1px solid #e5e7eb;
+}
+
+/* Hero section gradient */
+.hero-gradient {
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 50%, #a7f3d0 100%);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .service-card {
+        margin-bottom: 1rem;
+    }
+    
+    .modal-backdrop .modal {
+        margin: 1rem;
+        max-width: calc(100vw - 2rem);
+    }
+}

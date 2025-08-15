@@ -1,0 +1,29 @@
+{{define "title"}}{{.Data.Service.Name}} - LandscapePro{{end}}
+
+{{define "service-detail-content"}}
+<div class="max-w-4xl mx-auto px-4 py-8">
+    <div class="bg-white rounded-lg shadow-lg overflow-hidden">
+        <img src="{{.Data.Service.Image}}" alt="{{.Data.Service.Name}}" class="w-full h-64 object-cover">
+        <div class="p-8">
+            <div class="flex items-center mb-4">
+                <span class="text-4xl mr-4">{{.Data.Service.Icon}}</span>
+                <h1 class="text-3xl font-bold">{{.Data.Service.Name}}</h1>
+            </div>
+            <p class="text-gray-700 text-lg mb-6">{{.Data.Service.Description}}</p>
+            <div class="flex items-center justify-between">
+                <span class="text-2xl font-bold text-primary">{{.Data.Service.Price}}</span>
+                <button hx-get="/booking/form" 
+                        hx-target="#booking-modal"
+                        hx-swap="innerHTML"
+                        class="bg-primary text-white px-8 py-3 rounded-lg hover:bg-secondary transition">
+                    Book This Service
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="mt-8 text-center">
+        <a href="/" class="text-primary hover:text-secondary">← Back to Home</a>
+    </div>
+</div>
+{{end}}

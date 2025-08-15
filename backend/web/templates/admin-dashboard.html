@@ -1,0 +1,366 @@
+{{define "admin-dashboard-content"}}
+<div class="min-h-screen bg-gray-50" x-data="{ sidebarOpen: false }">
+    <!-- Mobile sidebar overlay -->
+    <div x-show="sidebarOpen" 
+         x-transition:enter="transition-opacity ease-linear duration-300"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition-opacity ease-linear duration-300"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-40 bg-gray-600 bg-opacity-75 sm:hidden"
+         @click="sidebarOpen = false"></div>
+
+    <!-- Sidebar -->
+    <div class="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out sm:translate-x-0"
+         :class="{ '-translate-x-full': !sidebarOpen, 'translate-x-0': sidebarOpen }">
+        
+        <!-- Sidebar header -->
+        <div class="flex items-center justify-between h-16 px-6 bg-primary">
+            <h1 class="text-xl font-bold text-white">Admin Panel</h1>
+            <button @click="sidebarOpen = false" class="text-white sm:hidden">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="mt-6 px-6">
+            <div class="space-y-2">
+                <a href="/admin" 
+                   hx-get="/admin/partials/overview" 
+                   hx-target="#main-content"
+                   hx-push-url="/admin"
+                   class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition duration-200 {{if eq .Data.Section "overview"}}bg-primary text-white{{else}}text-gray-700 hover:bg-gray-100{{end}}">
+                    <svg class="mr-3 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5v6"></path>
+                    </svg>
+                    Overview
+                </a>
+
+                <a href="/admin/requests" 
+                   hx-get="/admin/partials/requests" 
+                   hx-target="#main-content"
+                   hx-push-url="/admin/requests"
+                   class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition duration-200 {{if eq .Data.Section "requests"}}bg-primary text-white{{else}}text-gray-700 hover:bg-gray-100{{end}}">
+                    <svg class="mr-3 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-5 5-5-5h5v-5a7.5 7.5 0 0 1 7.5-7.5h0a7.5 7.5 0 0 1 7.5 7.5"></path>
+                    </svg>
+                    Service Requests
+                </a>
+
+                <a href="/admin/customers" 
+                   hx-get="/admin/partials/customers" 
+                   hx-target="#main-content"
+                   hx-push-url="/admin/customers"
+                   class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition duration-200 {{if eq .Data.Section "customers"}}bg-primary text-white{{else}}text-gray-700 hover:bg-gray-100{{end}}">
+                    <svg class="mr-3 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                    </svg>
+                    Customers
+                </a>
+
+                <a href="/admin/jobs" 
+                   hx-get="/admin/partials/jobs" 
+                   hx-target="#main-content"
+                   hx-push-url="/admin/jobs"
+                   class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition duration-200 {{if eq .Data.Section "jobs"}}bg-primary text-white{{else}}text-gray-700 hover:bg-gray-100{{end}}">
+                    <svg class="mr-3 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v2m4-4h8a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2v-2m4-4h8m-8-4h8"></path>
+                    </svg>
+                    Jobs
+                </a>
+
+                <a href="/admin/services" 
+                   hx-get="/admin/partials/services" 
+                   hx-target="#main-content"
+                   hx-push-url="/admin/services"
+                   class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition duration-200 {{if eq .Data.Section "services"}}bg-primary text-white{{else}}text-gray-700 hover:bg-gray-100{{end}}">
+                    <svg class="mr-3 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                    </svg>
+                    Services
+                </a>
+
+                <a href="/admin/team" 
+                   hx-get="/admin/partials/team" 
+                   hx-target="#main-content"
+                   hx-push-url="/admin/team"
+                   class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition duration-200 {{if eq .Data.Section "team"}}bg-primary text-white{{else}}text-gray-700 hover:bg-gray-100{{end}}">
+                    <svg class="mr-3 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m3 5.197H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    Team
+                </a>
+
+                <a href="/admin/reports" 
+                   hx-get="/admin/partials/reports" 
+                   hx-target="#main-content"
+                   hx-push-url="/admin/reports"
+                   class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition duration-200 {{if eq .Data.Section "reports"}}bg-primary text-white{{else}}text-gray-700 hover:bg-gray-100{{end}}">
+                    <svg class="mr-3 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    Reports
+                </a>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="mt-8">
+                <h3 class="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Quick Actions</h3>
+                <div class="mt-2 space-y-1">
+                    <button hx-get="/admin/partials/customer-form" 
+                            hx-target="#modal-content"
+                            class="group flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-md hover:bg-gray-100 transition duration-200 w-full text-left">
+                        <svg class="mr-3 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        Add Customer
+                    </button>
+                    
+                    <button hx-get="/admin/partials/job-form" 
+                            hx-target="#modal-content"
+                            class="group flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-md hover:bg-gray-100 transition duration-200 w-full text-left">
+                        <svg class="mr-3 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                        Schedule Job
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- User info -->
+        <div class="absolute bottom-0 left-0 right-0 p-6 border-t">
+            <div class="flex items-center">
+                <div class="w-8 h-8 bg-primary text-white rounded-full flex items-center justify-center text-sm font-medium">
+                    A
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm font-medium text-gray-700">Admin User</p>
+                    <p class="text-xs text-gray-500">Administrator</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="flex-1 flex flex-col sm:ml-64">
+        <!-- Top navigation -->
+        <header class="bg-white shadow-sm border-b">
+            <div class="flex items-center justify-between px-6 py-4">
+                <div class="flex items-center">
+                    <button @click="sidebarOpen = true" class="text-gray-500 hover:text-gray-700 sm:hidden">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                        </svg>
+                    </button>
+                    
+                    <nav class="hidden sm:flex space-x-2 ml-4">
+                        <a href="/" class="text-gray-600 hover:text-primary text-sm">Home</a>
+                        <span class="text-gray-400">/</span>
+                        <span class="text-primary text-sm font-medium">Admin Dashboard</span>
+                    </nav>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <!-- Notifications -->
+                    <button class="text-gray-500 hover:text-gray-700 relative">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-5 5v-5zM10.5 3.5v6l-5-5h5z"></path>
+                        </svg>
+                        <span class="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-400"></span>
+                    </button>
+
+                    <!-- Settings -->
+                    <button class="text-gray-500 hover:text-gray-700">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Page content -->
+        <main class="flex-1 overflow-y-auto">
+            <div class="p-6" id="main-content">
+                <!-- Dynamic content will be loaded here -->
+                {{if eq .Data.Section "overview"}}
+                    <div hx-get="/admin/partials/overview" hx-trigger="load" hx-swap="innerHTML">
+                        <div class="flex items-center justify-center h-64">
+                            <div class="text-center">
+                                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                                <p class="mt-2 text-sm text-gray-500">Loading dashboard...</p>
+                            </div>
+                        </div>
+                    </div>
+                {{else if eq .Data.Section "requests"}}
+                    <div hx-get="/admin/partials/requests" hx-trigger="load" hx-swap="innerHTML">
+                        <div class="flex items-center justify-center h-64">
+                            <div class="text-center">
+                                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                                <p class="mt-2 text-sm text-gray-500">Loading service requests...</p>
+                            </div>
+                        </div>
+                    </div>
+                {{else if eq .Data.Section "customers"}}
+                    <div hx-get="/admin/partials/customers" hx-trigger="load" hx-swap="innerHTML">
+                        <div class="flex items-center justify-center h-64">
+                            <div class="text-center">
+                                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                                <p class="mt-2 text-sm text-gray-500">Loading customers...</p>
+                            </div>
+                        </div>
+                    </div>
+                {{else if eq .Data.Section "jobs"}}
+                    <div hx-get="/admin/partials/jobs" hx-trigger="load" hx-swap="innerHTML">
+                        <div class="flex items-center justify-center h-64">
+                            <div class="text-center">
+                                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                                <p class="mt-2 text-sm text-gray-500">Loading jobs...</p>
+                            </div>
+                        </div>
+                    </div>
+                {{else if eq .Data.Section "services"}}
+                    <div hx-get="/admin/partials/services" hx-trigger="load" hx-swap="innerHTML">
+                        <div class="flex items-center justify-center h-64">
+                            <div class="text-center">
+                                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                                <p class="mt-2 text-sm text-gray-500">Loading services...</p>
+                            </div>
+                        </div>
+                    </div>
+                {{else if eq .Data.Section "team"}}
+                    <div hx-get="/admin/partials/team" hx-trigger="load" hx-swap="innerHTML">
+                        <div class="flex items-center justify-center h-64">
+                            <div class="text-center">
+                                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                                <p class="mt-2 text-sm text-gray-500">Loading team...</p>
+                            </div>
+                        </div>
+                    </div>
+                {{else if eq .Data.Section "reports"}}
+                    <div hx-get="/admin/partials/reports" hx-trigger="load" hx-swap="innerHTML">
+                        <div class="flex items-center justify-center h-64">
+                            <div class="text-center">
+                                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                                <p class="mt-2 text-sm text-gray-500">Loading reports...</p>
+                            </div>
+                        </div>
+                    </div>
+                {{end}}
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal Container -->
+    <div id="modal-content"></div>
+
+    <!-- Toast notifications -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50"></div>
+</div>
+
+<!-- Add some custom styles for the admin dashboard -->
+<style>
+    .htmx-indicator {
+        opacity: 0;
+        transition: opacity 200ms ease-in;
+    }
+    .htmx-request .htmx-indicator {
+        opacity: 1;
+    }
+    .htmx-request.htmx-indicator {
+        opacity: 1;
+    }
+    
+    /* Smooth sidebar animations */
+    @media (min-width: 640px) {
+        .sm\\:ml-64 {
+            margin-left: 16rem;
+        }
+    }
+    
+    /* Better loading states */
+    .htmx-settling {
+        opacity: 0.8;
+        transition: opacity 200ms ease-out;
+    }
+</style>
+
+<script>
+    // Admin dashboard functionality
+    document.addEventListener('DOMContentLoaded', function() {
+        // Auto-refresh certain sections
+        setInterval(function() {
+            if (window.location.pathname === '/admin') {
+                htmx.trigger('#main-content', 'refresh-overview');
+            }
+        }, 30000); // Refresh every 30 seconds
+        
+        // Handle form submissions
+        document.addEventListener('htmx:afterRequest', function(event) {
+            if (event.detail.xhr.status === 200 && event.detail.requestConfig.verb === 'post') {
+                // Show success notification
+                showNotification('Operation completed successfully!', 'success');
+                
+                // Close any open modals
+                const modal = document.getElementById('modal-content');
+                if (modal) {
+                    modal.innerHTML = '';
+                }
+                
+                // Refresh the current section
+                setTimeout(function() {
+                    const currentSection = window.location.pathname.split('/').pop() || 'overview';
+                    htmx.ajax('GET', '/admin/partials/' + currentSection, '#main-content');
+                }, 1000);
+            }
+        });
+        
+        // Error handling
+        document.addEventListener('htmx:responseError', function(event) {
+            showNotification('An error occurred. Please try again.', 'error');
+        });
+    });
+    
+    function showNotification(message, type) {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        
+        const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
+        
+        toast.className = `${bgColor} text-white px-6 py-4 rounded-lg shadow-lg mb-2 transform transition-transform duration-300 translate-x-full`;
+        toast.innerHTML = `
+            <div class="flex items-center justify-between">
+                <span>${message}</span>
+                <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-white hover:text-gray-200">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+        `;
+        
+        container.appendChild(toast);
+        
+        // Animate in
+        setTimeout(() => {
+            toast.classList.remove('translate-x-full');
+        }, 100);
+        
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+            toast.classList.add('translate-x-full');
+            setTimeout(() => {
+                if (toast.parentElement) {
+                    toast.remove();
+                }
+            }, 300);
+        }, 5000);
+    }
+</script>
+{{end}}

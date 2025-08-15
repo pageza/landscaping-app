@@ -1,0 +1,682 @@
+package integrations
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"mime"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	// "github.com/pageza/go-storage" // Temporarily disabled due to import cycle
+	// "github.com/pageza/go-storage/providers/s3" // Temporarily disabled due to import cycle
+	// "github.com/pageza/go-storage/providers/gcs" // Temporarily disabled due to import cycle
+	// "github.com/pageza/go-storage/providers/azure" // Temporarily disabled due to import cycle
+	// "github.com/pageza/go-storage/providers/local" // Temporarily disabled due to import cycle
+)
+
+// StorageConfig holds configuration for the storage service
+type StorageConfig struct {
+	// General settings
+	DefaultProvider string `json:"default_provider"` // "s3", "gcs", "azure", "local"
+	DefaultBucket   string `json:"default_bucket"`
+	BaseURL         string `json:"base_url"`
+	CDNDomain       string `json:"cdn_domain"`
+	
+	// AWS S3 configuration
+	AWSAccessKey    string `json:"aws_access_key"`
+	AWSSecretKey    string `json:"aws_secret_key"`
+	AWSRegion       string `json:"aws_region"`
+	S3Bucket        string `json:"s3_bucket"`
+	S3Endpoint      string `json:"s3_endpoint"`      // For S3-compatible services
+	S3ForcePathStyle bool  `json:"s3_force_path_style"`
+	
+	// Google Cloud Storage configuration
+	GCSProjectID         string `json:"gcs_project_id"`
+	GCSServiceAccountKey string `json:"gcs_service_account_key"`
+	GCSBucket           string `json:"gcs_bucket"`
+	
+	// Azure Blob Storage configuration
+	AzureAccountName   string `json:"azure_account_name"`
+	AzureAccountKey    string `json:"azure_account_key"`
+	AzureContainer     string `json:"azure_container"`
+	
+	// Local storage configuration
+	LocalBasePath string `json:"local_base_path"`
+	
+	// Security settings
+	EnableEncryption     bool     `json:"enable_encryption"`
+	AllowedFileTypes     []string `json:"allowed_file_types"`
+	MaxFileSize          int64    `json:"max_file_size"`      // In bytes
+	EnableVirusScanning  bool     `json:"enable_virus_scanning"`
+	
+	// Performance settings
+	EnableCompression    bool   `json:"enable_compression"`
+	EnableCaching        bool   `json:"enable_caching"`
+	CacheTTL            int    `json:"cache_ttl_seconds"`
+	
+	// Image processing
+	EnableImageProcessing bool `json:"enable_image_processing"`
+	ImageQuality         int  `json:"image_quality"`
+	MaxImageWidth        int  `json:"max_image_width"`
+	MaxImageHeight       int  `json:"max_image_height"`
+}
+
+// StorageIntegration wraps the go-storage package for landscaping app
+type StorageIntegration struct {
+	// client *storage.Client // Temporarily disabled due to import cycle
+	config StorageConfig
+	logger *slog.Logger
+}
+
+// NewStorageIntegration creates a new storage integration
+func NewStorageIntegration(config StorageConfig, logger *slog.Logger) (*StorageIntegration, error) {
+	// Create go-storage client with configuration
+	clientConfig := &storage.Config{
+		DefaultProvider: config.DefaultProvider,
+		DefaultBucket:   config.DefaultBucket,
+		BaseURL:        config.BaseURL,
+		CDNDomain:      config.CDNDomain,
+	}
+
+	client, err := storage.NewClient(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create storage client: %w", err)
+	}
+
+	integration := &StorageIntegration{
+		client: client,
+		config: config,
+		logger: logger,
+	}
+
+	// Configure storage providers
+	if err := integration.configureProviders(); err != nil {
+		return nil, fmt.Errorf("failed to configure storage providers: %w", err)
+	}
+
+	return integration, nil
+}
+
+// GetClient returns the go-storage client
+func (s *StorageIntegration) GetClient() *storage.Client {
+	return s.client
+}
+
+// UploadFile uploads a file to storage
+func (s *StorageIntegration) UploadFile(ctx context.Context, req *UploadRequest) (*UploadResponse, error) {
+	// Validate file
+	if err := s.validateFile(req); err != nil {
+		return nil, fmt.Errorf("file validation failed: %w", err)
+	}
+
+	// Generate unique filename
+	filename := s.generateFilename(req.Filename, req.Folder)
+
+	// Prepare upload request
+	uploadReq := &storage.UploadRequest{
+		Key:         filename,
+		Data:        req.Data,
+		ContentType: req.ContentType,
+		Bucket:      req.Bucket,
+		Metadata:    req.Metadata,
+	}
+
+	// Set cache control
+	if s.config.EnableCaching {
+		uploadReq.CacheControl = fmt.Sprintf("max-age=%d", s.config.CacheTTL)
+	}
+
+	// Enable server-side encryption if configured
+	if s.config.EnableEncryption {
+		uploadReq.ServerSideEncryption = "AES256"
+	}
+
+	result, err := s.client.Upload(ctx, uploadReq)
+	if err != nil {
+		s.logger.Error("Failed to upload file", "error", err, "filename", req.Filename)
+		return nil, fmt.Errorf("failed to upload file: %w", err)
+	}
+
+	response := &UploadResponse{
+		Key:         result.Key,
+		URL:         result.URL,
+		Size:        result.Size,
+		ContentType: result.ContentType,
+		ETag:        result.ETag,
+		UploadedAt:  time.Now(),
+	}
+
+	// Generate CDN URL if configured
+	if s.config.CDNDomain != "" {
+		response.CDNURL = s.generateCDNURL(result.Key)
+	}
+
+	s.logger.Info("File uploaded successfully", "key", result.Key, "size", result.Size)
+	return response, nil
+}
+
+// UploadImage uploads and processes an image
+func (s *StorageIntegration) UploadImage(ctx context.Context, req *ImageUploadRequest) (*ImageUploadResponse, error) {
+	// Validate image file
+	if !s.isImageFile(req.Filename) {
+		return nil, fmt.Errorf("file is not a valid image")
+	}
+
+	// Process image if enabled
+	processedData := req.Data
+	if s.config.EnableImageProcessing {
+		processed, err := s.processImage(req.Data, req.Options)
+		if err != nil {
+			s.logger.Warn("Failed to process image, using original", "error", err)
+		} else {
+			processedData = processed
+		}
+	}
+
+	// Upload original image
+	uploadReq := &UploadRequest{
+		Filename:    req.Filename,
+		Data:        processedData,
+		ContentType: req.ContentType,
+		Folder:      req.Folder,
+		Bucket:      req.Bucket,
+		Metadata:    req.Metadata,
+	}
+
+	uploadResp, err := s.UploadFile(ctx, uploadReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload image: %w", err)
+	}
+
+	response := &ImageUploadResponse{
+		UploadResponse: *uploadResp,
+		Thumbnails:     make([]ThumbnailInfo, 0),
+	}
+
+	// Generate thumbnails if requested
+	if len(req.ThumbnailSizes) > 0 {
+		thumbnails, err := s.generateThumbnails(ctx, req.Data, req.Filename, req.ThumbnailSizes, req.Folder, req.Bucket)
+		if err != nil {
+			s.logger.Warn("Failed to generate thumbnails", "error", err)
+		} else {
+			response.Thumbnails = thumbnails
+		}
+	}
+
+	return response, nil
+}
+
+// DownloadFile downloads a file from storage
+func (s *StorageIntegration) DownloadFile(ctx context.Context, key string, bucket string) (*DownloadResponse, error) {
+	downloadReq := &storage.DownloadRequest{
+		Key:    key,
+		Bucket: bucket,
+	}
+
+	result, err := s.client.Download(ctx, downloadReq)
+	if err != nil {
+		s.logger.Error("Failed to download file", "error", err, "key", key)
+		return nil, fmt.Errorf("failed to download file: %w", err)
+	}
+
+	response := &DownloadResponse{
+		Key:         result.Key,
+		Data:        result.Data,
+		ContentType: result.ContentType,
+		Size:        result.Size,
+		LastModified: result.LastModified,
+	}
+
+	return response, nil
+}
+
+// DeleteFile deletes a file from storage
+func (s *StorageIntegration) DeleteFile(ctx context.Context, key string, bucket string) error {
+	deleteReq := &storage.DeleteRequest{
+		Key:    key,
+		Bucket: bucket,
+	}
+
+	err := s.client.Delete(ctx, deleteReq)
+	if err != nil {
+		s.logger.Error("Failed to delete file", "error", err, "key", key)
+		return fmt.Errorf("failed to delete file: %w", err)
+	}
+
+	s.logger.Info("File deleted successfully", "key", key)
+	return nil
+}
+
+// ListFiles lists files in a folder
+func (s *StorageIntegration) ListFiles(ctx context.Context, req *ListRequest) (*ListResponse, error) {
+	listReq := &storage.ListRequest{
+		Prefix:    req.Prefix,
+		Bucket:    req.Bucket,
+		MaxKeys:   req.MaxKeys,
+		Delimiter: req.Delimiter,
+	}
+
+	result, err := s.client.List(ctx, listReq)
+	if err != nil {
+		s.logger.Error("Failed to list files", "error", err, "prefix", req.Prefix)
+		return nil, fmt.Errorf("failed to list files: %w", err)
+	}
+
+	files := make([]FileInfo, len(result.Objects))
+	for i, obj := range result.Objects {
+		files[i] = FileInfo{
+			Key:          obj.Key,
+			Size:         obj.Size,
+			LastModified: obj.LastModified,
+			ETag:         obj.ETag,
+			StorageClass: obj.StorageClass,
+		}
+	}
+
+	response := &ListResponse{
+		Files:       files,
+		IsTruncated: result.IsTruncated,
+		NextMarker:  result.NextMarker,
+	}
+
+	return response, nil
+}
+
+// GetFileInfo gets information about a file
+func (s *StorageIntegration) GetFileInfo(ctx context.Context, key string, bucket string) (*FileInfo, error) {
+	infoReq := &storage.InfoRequest{
+		Key:    key,
+		Bucket: bucket,
+	}
+
+	result, err := s.client.GetInfo(ctx, infoReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file info: %w", err)
+	}
+
+	info := &FileInfo{
+		Key:          result.Key,
+		Size:         result.Size,
+		LastModified: result.LastModified,
+		ETag:         result.ETag,
+		ContentType:  result.ContentType,
+		Metadata:     result.Metadata,
+	}
+
+	return info, nil
+}
+
+// GeneratePresignedURL generates a presigned URL for file access
+func (s *StorageIntegration) GeneratePresignedURL(ctx context.Context, req *PresignedURLRequest) (*PresignedURLResponse, error) {
+	urlReq := &storage.PresignedURLRequest{
+		Key:        req.Key,
+		Bucket:     req.Bucket,
+		Method:     req.Method,
+		Expiration: req.Expiration,
+	}
+
+	result, err := s.client.GeneratePresignedURL(ctx, urlReq)
+	if err != nil {
+		s.logger.Error("Failed to generate presigned URL", "error", err, "key", req.Key)
+		return nil, fmt.Errorf("failed to generate presigned URL: %w", err)
+	}
+
+	response := &PresignedURLResponse{
+		URL:       result.URL,
+		ExpiresAt: result.ExpiresAt,
+	}
+
+	return response, nil
+}
+
+// CopyFile copies a file within storage
+func (s *StorageIntegration) CopyFile(ctx context.Context, req *CopyRequest) error {
+	copyReq := &storage.CopyRequest{
+		SourceKey:      req.SourceKey,
+		DestinationKey: req.DestinationKey,
+		SourceBucket:   req.SourceBucket,
+		DestinationBucket: req.DestinationBucket,
+	}
+
+	err := s.client.Copy(ctx, copyReq)
+	if err != nil {
+		s.logger.Error("Failed to copy file", "error", err, "source", req.SourceKey, "dest", req.DestinationKey)
+		return fmt.Errorf("failed to copy file: %w", err)
+	}
+
+	s.logger.Info("File copied successfully", "source", req.SourceKey, "dest", req.DestinationKey)
+	return nil
+}
+
+// CreateBackup creates a backup of files
+func (s *StorageIntegration) CreateBackup(ctx context.Context, req *BackupRequest) (*BackupResponse, error) {
+	backupID := uuid.New().String()
+	backupPrefix := fmt.Sprintf("backups/%s/%s/", req.Name, time.Now().Format("2006-01-02"))
+
+	var backedUpFiles []string
+	var totalSize int64
+
+	for _, key := range req.Files {
+		// Copy file to backup location
+		backupKey := backupPrefix + filepath.Base(key)
+		
+		copyReq := &CopyRequest{
+			SourceKey:      key,
+			DestinationKey: backupKey,
+			SourceBucket:   req.SourceBucket,
+			DestinationBucket: req.BackupBucket,
+		}
+
+		if err := s.CopyFile(ctx, copyReq); err != nil {
+			s.logger.Warn("Failed to backup file", "error", err, "key", key)
+			continue
+		}
+
+		// Get file size
+		info, err := s.GetFileInfo(ctx, key, req.SourceBucket)
+		if err == nil {
+			totalSize += info.Size
+		}
+
+		backedUpFiles = append(backedUpFiles, backupKey)
+	}
+
+	response := &BackupResponse{
+		BackupID:    backupID,
+		BackupPath:  backupPrefix,
+		Files:       backedUpFiles,
+		TotalSize:   totalSize,
+		CreatedAt:   time.Now(),
+	}
+
+	s.logger.Info("Backup created successfully", "backup_id", backupID, "files_count", len(backedUpFiles))
+	return response, nil
+}
+
+// Private helper methods
+
+func (s *StorageIntegration) configureProviders() error {
+	// Configure AWS S3
+	if s.config.AWSAccessKey != "" {
+		s3Config := &s3.Config{
+			AccessKey:      s.config.AWSAccessKey,
+			SecretKey:      s.config.AWSSecretKey,
+			Region:         s.config.AWSRegion,
+			Bucket:         s.config.S3Bucket,
+			Endpoint:       s.config.S3Endpoint,
+			ForcePathStyle: s.config.S3ForcePathStyle,
+		}
+		if err := s.client.ConfigureProvider("s3", s3Config); err != nil {
+			return fmt.Errorf("failed to configure S3: %w", err)
+		}
+	}
+
+	// Configure Google Cloud Storage
+	if s.config.GCSProjectID != "" {
+		gcsConfig := &gcs.Config{
+			ProjectID:         s.config.GCSProjectID,
+			ServiceAccountKey: s.config.GCSServiceAccountKey,
+			Bucket:           s.config.GCSBucket,
+		}
+		if err := s.client.ConfigureProvider("gcs", gcsConfig); err != nil {
+			return fmt.Errorf("failed to configure GCS: %w", err)
+		}
+	}
+
+	// Configure Azure Blob Storage (temporarily disabled due to import cycle)
+	/*
+	if s.config.AzureAccountName != "" {
+		azureConfig := &azure.Config{
+			AccountName: s.config.AzureAccountName,
+			AccountKey:  s.config.AzureAccountKey,
+			Container:   s.config.AzureContainer,
+		}
+		if err := s.client.ConfigureProvider("azure", azureConfig); err != nil {
+			return fmt.Errorf("failed to configure Azure: %w", err)
+		}
+	}
+	*/
+
+	// Configure local storage
+	if s.config.LocalBasePath != "" {
+		localConfig := &local.Config{
+			BasePath: s.config.LocalBasePath,
+		}
+		if err := s.client.ConfigureProvider("local", localConfig); err != nil {
+			return fmt.Errorf("failed to configure local storage: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *StorageIntegration) validateFile(req *UploadRequest) error {
+	// Check file size
+	if s.config.MaxFileSize > 0 && int64(len(req.Data)) > s.config.MaxFileSize {
+		return fmt.Errorf("file size %d exceeds maximum allowed size %d", len(req.Data), s.config.MaxFileSize)
+	}
+
+	// Check file type
+	if len(s.config.AllowedFileTypes) > 0 {
+		ext := strings.ToLower(filepath.Ext(req.Filename))
+		allowed := false
+		for _, allowedType := range s.config.AllowedFileTypes {
+			if ext == allowedType {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("file type %s is not allowed", ext)
+		}
+	}
+
+	// Detect content type if not provided
+	if req.ContentType == "" {
+		req.ContentType = mime.TypeByExtension(filepath.Ext(req.Filename))
+		if req.ContentType == "" {
+			req.ContentType = "application/octet-stream"
+		}
+	}
+
+	return nil
+}
+
+func (s *StorageIntegration) generateFilename(original, folder string) string {
+	// Generate unique filename with timestamp and UUID
+	ext := filepath.Ext(original)
+	basename := strings.TrimSuffix(filepath.Base(original), ext)
+	
+	timestamp := time.Now().Format("20060102-150405")
+	uniqueID := uuid.New().String()[:8]
+	
+	filename := fmt.Sprintf("%s-%s-%s%s", basename, timestamp, uniqueID, ext)
+	
+	if folder != "" {
+		filename = fmt.Sprintf("%s/%s", strings.Trim(folder, "/"), filename)
+	}
+	
+	return filename
+}
+
+func (s *StorageIntegration) generateCDNURL(key string) string {
+	return fmt.Sprintf("https://%s/%s", s.config.CDNDomain, key)
+}
+
+func (s *StorageIntegration) isImageFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	imageExts := []string{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+	
+	for _, imageExt := range imageExts {
+		if ext == imageExt {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *StorageIntegration) processImage(data []byte, options *ImageProcessingOptions) ([]byte, error) {
+	// This would use an image processing library like imaging or vips
+	// For now, return original data
+	return data, nil
+}
+
+func (s *StorageIntegration) generateThumbnails(ctx context.Context, data []byte, filename string, sizes []ThumbnailSize, folder, bucket string) ([]ThumbnailInfo, error) {
+	thumbnails := make([]ThumbnailInfo, 0, len(sizes))
+	
+	for _, size := range sizes {
+		// Generate thumbnail (simplified)
+		thumbnailData := data // Would process image here
+		
+		// Upload thumbnail
+		thumbnailFilename := s.generateThumbnailFilename(filename, size)
+		uploadReq := &UploadRequest{
+			Filename:    thumbnailFilename,
+			Data:        thumbnailData,
+			ContentType: "image/jpeg",
+			Folder:      folder,
+			Bucket:      bucket,
+		}
+		
+		uploadResp, err := s.UploadFile(ctx, uploadReq)
+		if err != nil {
+			continue
+		}
+		
+		thumbnail := ThumbnailInfo{
+			Size:   size,
+			Key:    uploadResp.Key,
+			URL:    uploadResp.URL,
+			CDNURL: uploadResp.CDNURL,
+		}
+		
+		thumbnails = append(thumbnails, thumbnail)
+	}
+	
+	return thumbnails, nil
+}
+
+func (s *StorageIntegration) generateThumbnailFilename(original string, size ThumbnailSize) string {
+	ext := filepath.Ext(original)
+	basename := strings.TrimSuffix(original, ext)
+	return fmt.Sprintf("%s_thumb_%dx%d%s", basename, size.Width, size.Height, ext)
+}
+
+// Data structures for the integration
+
+type UploadRequest struct {
+	Filename    string            `json:"filename"`
+	Data        []byte            `json:"data"`
+	ContentType string            `json:"content_type"`
+	Folder      string            `json:"folder"`
+	Bucket      string            `json:"bucket"`
+	Metadata    map[string]string `json:"metadata"`
+}
+
+type UploadResponse struct {
+	Key         string    `json:"key"`
+	URL         string    `json:"url"`
+	CDNURL      string    `json:"cdn_url"`
+	Size        int64     `json:"size"`
+	ContentType string    `json:"content_type"`
+	ETag        string    `json:"etag"`
+	UploadedAt  time.Time `json:"uploaded_at"`
+}
+
+type ImageUploadRequest struct {
+	UploadRequest
+	Options        *ImageProcessingOptions `json:"options"`
+	ThumbnailSizes []ThumbnailSize         `json:"thumbnail_sizes"`
+}
+
+type ImageUploadResponse struct {
+	UploadResponse
+	Thumbnails []ThumbnailInfo `json:"thumbnails"`
+}
+
+type ImageProcessingOptions struct {
+	MaxWidth  int `json:"max_width"`
+	MaxHeight int `json:"max_height"`
+	Quality   int `json:"quality"`
+}
+
+type ThumbnailSize struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+type ThumbnailInfo struct {
+	Size   ThumbnailSize `json:"size"`
+	Key    string        `json:"key"`
+	URL    string        `json:"url"`
+	CDNURL string        `json:"cdn_url"`
+}
+
+type DownloadResponse struct {
+	Key          string    `json:"key"`
+	Data         []byte    `json:"data"`
+	ContentType  string    `json:"content_type"`
+	Size         int64     `json:"size"`
+	LastModified time.Time `json:"last_modified"`
+}
+
+type ListRequest struct {
+	Prefix    string `json:"prefix"`
+	Bucket    string `json:"bucket"`
+	MaxKeys   int    `json:"max_keys"`
+	Delimiter string `json:"delimiter"`
+}
+
+type ListResponse struct {
+	Files       []FileInfo `json:"files"`
+	IsTruncated bool       `json:"is_truncated"`
+	NextMarker  string     `json:"next_marker"`
+}
+
+type FileInfo struct {
+	Key          string            `json:"key"`
+	Size         int64             `json:"size"`
+	LastModified time.Time         `json:"last_modified"`
+	ETag         string            `json:"etag"`
+	ContentType  string            `json:"content_type"`
+	StorageClass string            `json:"storage_class"`
+	Metadata     map[string]string `json:"metadata"`
+}
+
+type PresignedURLRequest struct {
+	Key        string        `json:"key"`
+	Bucket     string        `json:"bucket"`
+	Method     string        `json:"method"`
+	Expiration time.Duration `json:"expiration"`
+}
+
+type PresignedURLResponse struct {
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type CopyRequest struct {
+	SourceKey         string `json:"source_key"`
+	DestinationKey    string `json:"destination_key"`
+	SourceBucket      string `json:"source_bucket"`
+	DestinationBucket string `json:"destination_bucket"`
+}
+
+type BackupRequest struct {
+	Name         string   `json:"name"`
+	Files        []string `json:"files"`
+	SourceBucket string   `json:"source_bucket"`
+	BackupBucket string   `json:"backup_bucket"`
+}
+
+type BackupResponse struct {
+	BackupID   string    `json:"backup_id"`
+	BackupPath string    `json:"backup_path"`
+	Files      []string  `json:"files"`
+	TotalSize  int64     `json:"total_size"`
+	CreatedAt  time.Time `json:"created_at"`
+}

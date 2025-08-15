@@ -1,0 +1,705 @@
+package integrations
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	// TODO: Re-enable after fixing package availability
+	// "github.com/pageza/go-llm"
+	// "github.com/pageza/go-llm/providers/openai"
+	// "github.com/pageza/go-llm/providers/anthropic"
+	// "github.com/pageza/go-llm/providers/gemini"
+)
+
+
+// LLMConfig holds configuration for the LLM service
+type LLMConfig struct {
+	// General settings
+	DefaultProvider string `json:"default_provider"` // "openai", "anthropic", "gemini"
+	DefaultModel    string `json:"default_model"`
+	MaxTokens       int    `json:"max_tokens"`
+	Temperature     float64 `json:"temperature"`
+	
+	// OpenAI configuration
+	OpenAIAPIKey      string `json:"openai_api_key"`
+	OpenAIOrganization string `json:"openai_organization"`
+	OpenAIBaseURL     string `json:"openai_base_url"`
+	
+	// Anthropic configuration
+	AnthropicAPIKey string `json:"anthropic_api_key"`
+	
+	// Google Gemini configuration
+	GeminiAPIKey    string `json:"gemini_api_key"`
+	GeminiProjectID string `json:"gemini_project_id"`
+	
+	// Safety and moderation
+	EnableModeration     bool     `json:"enable_moderation"`
+	ContentFilters       []string `json:"content_filters"`
+	EnableSafetyFilters  bool     `json:"enable_safety_filters"`
+	
+	// Rate limiting
+	RequestsPerMinute int `json:"requests_per_minute"`
+	RequestsPerDay    int `json:"requests_per_day"`
+	
+	// Caching
+	EnableCaching   bool `json:"enable_caching"`
+	CacheTTLSeconds int  `json:"cache_ttl_seconds"`
+}
+
+// LLMIntegration wraps the go-llm package for landscaping app
+type LLMIntegration struct {
+	client *LLMClient
+	config LLMConfig
+	logger *slog.Logger
+}
+
+// NewLLMIntegration creates a new LLM integration
+func NewLLMIntegration(config LLMConfig, logger *slog.Logger) (*LLMIntegration, error) {
+	// Create go-llm client with configuration
+	clientConfig := &LLMClientConfig{
+		DefaultProvider: config.DefaultProvider,
+		DefaultModel:    config.DefaultModel,
+		MaxTokens:       config.MaxTokens,
+		Temperature:     config.Temperature,
+	}
+
+	client, err := NewLLMClient(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create LLM client: %w", err)
+	}
+
+	integration := &LLMIntegration{
+		client: client,
+		config: config,
+		logger: logger,
+	}
+
+	// Configure LLM providers
+	if err := integration.configureProviders(); err != nil {
+		return nil, fmt.Errorf("failed to configure LLM providers: %w", err)
+	}
+
+	return integration, nil
+}
+
+// GetClient returns the go-llm client
+func (l *LLMIntegration) GetClient() *LLMClient {
+	return l.client
+}
+
+// GenerateQuote generates a quote for landscaping services using AI
+func (l *LLMIntegration) GenerateQuote(ctx context.Context, req *QuoteGenerationRequest) (*QuoteGenerationResponse, error) {
+	// Build prompt for quote generation
+	prompt := l.buildQuotePrompt(req)
+
+	// Create chat completion request
+	chatReq := &ChatCompletionRequest{
+		Model:       l.getModelForTask("quote_generation"),
+		Messages:    []Message{
+			{
+				Role:    "system",
+				Content: l.getSystemPrompt("quote_generation"),
+			},
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		MaxTokens:   l.config.MaxTokens,
+		Temperature: l.config.Temperature,
+	}
+
+	// Apply moderation if enabled
+	if l.config.EnableModeration {
+		if err := l.moderateContent(ctx, prompt); err != nil {
+			return nil, fmt.Errorf("content moderation failed: %w", err)
+		}
+	}
+
+	response, err := l.client.CreateChatCompletion(ctx, chatReq)
+	if err != nil {
+		l.logger.Error("Failed to generate quote", "error", err)
+		return nil, fmt.Errorf("failed to generate quote: %w", err)
+	}
+
+	// Parse the response
+	quoteResponse, err := l.parseQuoteResponse(response.Choices[0].Message.Content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse quote response: %w", err)
+	}
+
+	quoteResponse.RequestID = uuid.New().String()
+	quoteResponse.GeneratedAt = time.Now()
+	quoteResponse.Model = response.Model
+	quoteResponse.UsageTokens = response.Usage.TotalTokens
+
+	l.logger.Info("Quote generated successfully", 
+		"request_id", quoteResponse.RequestID,
+		"property_type", req.PropertyType,
+		"services_count", len(req.Services))
+
+	return quoteResponse, nil
+}
+
+// GenerateJobDescription generates a job description using AI
+func (l *LLMIntegration) GenerateJobDescription(ctx context.Context, req *JobDescriptionRequest) (*JobDescriptionResponse, error) {
+	prompt := l.buildJobDescriptionPrompt(req)
+
+	chatReq := &ChatCompletionRequest{
+		Model: l.getModelForTask("job_description"),
+		Messages: []Message{
+			{
+				Role:    "system",
+				Content: l.getSystemPrompt("job_description"),
+			},
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		MaxTokens:   l.config.MaxTokens,
+		Temperature: 0.7, // Slightly higher temperature for creativity
+	}
+
+	response, err := l.client.CreateChatCompletion(ctx, chatReq)
+	if err != nil {
+		l.logger.Error("Failed to generate job description", "error", err)
+		return nil, fmt.Errorf("failed to generate job description: %w", err)
+	}
+
+	jobResponse := &JobDescriptionResponse{
+		Description:   response.Choices[0].Message.Content,
+		RequestID:     uuid.New().String(),
+		GeneratedAt:   time.Now(),
+		Model:         response.Model,
+		UsageTokens:   response.Usage.TotalTokens,
+	}
+
+	l.logger.Info("Job description generated successfully", "request_id", jobResponse.RequestID)
+	return jobResponse, nil
+}
+
+// AnalyzePropertyImages analyzes property images using AI
+func (l *LLMIntegration) AnalyzePropertyImages(ctx context.Context, req *ImageAnalysisRequest) (*ImageAnalysisResponse, error) {
+	// Create vision analysis request
+	visionReq := &VisionRequest{
+		Model: l.getModelForTask("image_analysis"),
+		Messages: []Message{
+			{
+				Role:    "system",
+				Content: l.getSystemPrompt("image_analysis"),
+			},
+			{
+				Role:    "user",
+				Content: req.AnalysisPrompt,
+				Images:  req.ImageURLs,
+			},
+		},
+		MaxTokens: l.config.MaxTokens,
+	}
+
+	response, err := l.client.CreateVisionCompletion(ctx, visionReq)
+	if err != nil {
+		l.logger.Error("Failed to analyze images", "error", err)
+		return nil, fmt.Errorf("failed to analyze images: %w", err)
+	}
+
+	// Parse analysis results
+	analysis, err := l.parseImageAnalysis(response.Choices[0].Message.Content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse image analysis: %w", err)
+	}
+
+	analysisResponse := &ImageAnalysisResponse{
+		Analysis:      analysis,
+		RequestID:     uuid.New().String(),
+		GeneratedAt:   time.Now(),
+		Model:         response.Model,
+		UsageTokens:   response.Usage.TotalTokens,
+		ImagesAnalyzed: len(req.ImageURLs),
+	}
+
+	l.logger.Info("Images analyzed successfully", 
+		"request_id", analysisResponse.RequestID,
+		"images_count", len(req.ImageURLs))
+
+	return analysisResponse, nil
+}
+
+// GenerateCustomerCommunication generates customer communication using AI
+func (l *LLMIntegration) GenerateCustomerCommunication(ctx context.Context, req *CommunicationRequest) (*CommunicationResponse, error) {
+	prompt := l.buildCommunicationPrompt(req)
+
+	chatReq := &ChatCompletionRequest{
+		Model: l.getModelForTask("customer_communication"),
+		Messages: []Message{
+			{
+				Role:    "system",
+				Content: l.getSystemPrompt("customer_communication"),
+			},
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		MaxTokens:   l.config.MaxTokens,
+		Temperature: 0.6, // Balanced creativity for professional communication
+	}
+
+	response, err := l.client.CreateChatCompletion(ctx, chatReq)
+	if err != nil {
+		l.logger.Error("Failed to generate customer communication", "error", err)
+		return nil, fmt.Errorf("failed to generate customer communication: %w", err)
+	}
+
+	commResponse := &CommunicationResponse{
+		Subject:     l.extractSubject(response.Choices[0].Message.Content),
+		Body:        l.extractBody(response.Choices[0].Message.Content),
+		RequestID:   uuid.New().String(),
+		GeneratedAt: time.Now(),
+		Model:       response.Model,
+		UsageTokens: response.Usage.TotalTokens,
+	}
+
+	l.logger.Info("Customer communication generated successfully", "request_id", commResponse.RequestID)
+	return commResponse, nil
+}
+
+// OptimizeSchedule uses AI to optimize job scheduling
+func (l *LLMIntegration) OptimizeSchedule(ctx context.Context, req *ScheduleOptimizationRequest) (*ScheduleOptimizationResponse, error) {
+	prompt := l.buildScheduleOptimizationPrompt(req)
+
+	chatReq := &ChatCompletionRequest{
+		Model: l.getModelForTask("schedule_optimization"),
+		Messages: []Message{
+			{
+				Role:    "system",
+				Content: l.getSystemPrompt("schedule_optimization"),
+			},
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		MaxTokens:   l.config.MaxTokens,
+		Temperature: 0.3, // Lower temperature for logical optimization
+	}
+
+	response, err := l.client.CreateChatCompletion(ctx, chatReq)
+	if err != nil {
+		l.logger.Error("Failed to optimize schedule", "error", err)
+		return nil, fmt.Errorf("failed to optimize schedule: %w", err)
+	}
+
+	// Parse optimization suggestions
+	optimization, err := l.parseScheduleOptimization(response.Choices[0].Message.Content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse schedule optimization: %w", err)
+	}
+
+	optimizationResponse := &ScheduleOptimizationResponse{
+		Recommendations: optimization,
+		RequestID:       uuid.New().String(),
+		GeneratedAt:     time.Now(),
+		Model:           response.Model,
+		UsageTokens:     response.Usage.TotalTokens,
+	}
+
+	l.logger.Info("Schedule optimization generated successfully", "request_id", optimizationResponse.RequestID)
+	return optimizationResponse, nil
+}
+
+// Private helper methods
+
+func (l *LLMIntegration) configureProviders() error {
+	// Configure OpenAI
+	if l.config.OpenAIAPIKey != "" {
+		openaiConfig := &openai.Config{
+			APIKey:      l.config.OpenAIAPIKey,
+			Organization: l.config.OpenAIOrganization,
+			BaseURL:     l.config.OpenAIBaseURL,
+		}
+		if err := l.client.ConfigureProvider("openai", openaiConfig); err != nil {
+			return fmt.Errorf("failed to configure OpenAI: %w", err)
+		}
+	}
+
+	// Configure Anthropic
+	if l.config.AnthropicAPIKey != "" {
+		anthropicConfig := &anthropic.Config{
+			APIKey: l.config.AnthropicAPIKey,
+		}
+		if err := l.client.ConfigureProvider("anthropic", anthropicConfig); err != nil {
+			return fmt.Errorf("failed to configure Anthropic: %w", err)
+		}
+	}
+
+	// Configure Google Gemini
+	if l.config.GeminiAPIKey != "" {
+		geminiConfig := &gemini.Config{
+			APIKey:    l.config.GeminiAPIKey,
+			ProjectID: l.config.GeminiProjectID,
+		}
+		if err := l.client.ConfigureProvider("gemini", geminiConfig); err != nil {
+			return fmt.Errorf("failed to configure Gemini: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (l *LLMIntegration) moderateContent(ctx context.Context, content string) error {
+	if !l.config.EnableModeration {
+		return nil
+	}
+
+	// Use OpenAI's moderation endpoint if available
+	moderationReq := &ModerationRequest{
+		Input: content,
+	}
+
+	response, err := l.client.CreateModeration(ctx, moderationReq)
+	if err != nil {
+		return fmt.Errorf("moderation request failed: %w", err)
+	}
+
+	if response.Flagged {
+		return fmt.Errorf("content flagged by moderation: %v", response.Categories)
+	}
+
+	return nil
+}
+
+func (l *LLMIntegration) getModelForTask(task string) string {
+	// Map tasks to optimal models
+	taskModels := map[string]string{
+		"quote_generation":       "gpt-4",
+		"job_description":        "gpt-3.5-turbo",
+		"image_analysis":         "gpt-4-vision-preview",
+		"customer_communication": "gpt-3.5-turbo",
+		"schedule_optimization":  "gpt-4",
+	}
+
+	if model, exists := taskModels[task]; exists {
+		return model
+	}
+
+	return l.config.DefaultModel
+}
+
+func (l *LLMIntegration) getSystemPrompt(task string) string {
+	prompts := map[string]string{
+		"quote_generation": `You are an expert landscaping estimator. Generate accurate, professional quotes based on property details and requested services. Include itemized costs, labor estimates, and material costs. Be specific about pricing and include any assumptions made.`,
+		
+		"job_description": `You are a professional landscaping project manager. Create detailed, clear job descriptions that include scope of work, required skills, safety considerations, and timeline estimates. Be specific about tasks and deliverables.`,
+		
+		"image_analysis": `You are a landscaping expert analyzing property images. Identify plant types, lawn conditions, existing hardscaping, potential issues, and opportunities for improvement. Provide detailed observations and recommendations.`,
+		
+		"customer_communication": `You are a professional customer service representative for a landscaping company. Write clear, friendly, and professional communications that maintain a helpful tone while being informative and addressing customer needs.`,
+		
+		"schedule_optimization": `You are a scheduling optimization expert for landscaping services. Analyze job requirements, resource constraints, and geographical factors to provide efficient scheduling recommendations that minimize travel time and maximize productivity.`,
+	}
+
+	if prompt, exists := prompts[task]; exists {
+		return prompt
+	}
+
+	return "You are a helpful assistant for a landscaping business."
+}
+
+func (l *LLMIntegration) buildQuotePrompt(req *QuoteGenerationRequest) string {
+	var prompt strings.Builder
+	
+	prompt.WriteString(fmt.Sprintf("Generate a detailed quote for landscaping services:\n\n"))
+	prompt.WriteString(fmt.Sprintf("Property Type: %s\n", req.PropertyType))
+	prompt.WriteString(fmt.Sprintf("Property Size: %.1f sq ft\n", req.PropertySize))
+	prompt.WriteString(fmt.Sprintf("Location: %s\n", req.Location))
+	
+	if req.PropertyDescription != "" {
+		prompt.WriteString(fmt.Sprintf("Property Description: %s\n", req.PropertyDescription))
+	}
+	
+	prompt.WriteString("\nRequested Services:\n")
+	for _, service := range req.Services {
+		prompt.WriteString(fmt.Sprintf("- %s\n", service))
+	}
+	
+	if req.Timeline != "" {
+		prompt.WriteString(fmt.Sprintf("\nDesired Timeline: %s\n", req.Timeline))
+	}
+	
+	if req.Budget > 0 {
+		prompt.WriteString(fmt.Sprintf("Budget Range: $%.2f\n", req.Budget))
+	}
+	
+	prompt.WriteString("\nPlease provide:\n")
+	prompt.WriteString("1. Itemized quote with costs\n")
+	prompt.WriteString("2. Labor estimates\n")
+	prompt.WriteString("3. Material costs\n")
+	prompt.WriteString("4. Timeline for completion\n")
+	prompt.WriteString("5. Any additional recommendations\n")
+	
+	return prompt.String()
+}
+
+func (l *LLMIntegration) buildJobDescriptionPrompt(req *JobDescriptionRequest) string {
+	var prompt strings.Builder
+	
+	prompt.WriteString(fmt.Sprintf("Create a detailed job description for: %s\n\n", req.JobTitle))
+	prompt.WriteString(fmt.Sprintf("Services Required: %s\n", strings.Join(req.Services, ", ")))
+	prompt.WriteString(fmt.Sprintf("Property Type: %s\n", req.PropertyType))
+	prompt.WriteString(fmt.Sprintf("Estimated Duration: %s\n", req.EstimatedDuration))
+	
+	if req.SpecialRequirements != "" {
+		prompt.WriteString(fmt.Sprintf("Special Requirements: %s\n", req.SpecialRequirements))
+	}
+	
+	prompt.WriteString("\nInclude:\n")
+	prompt.WriteString("1. Detailed scope of work\n")
+	prompt.WriteString("2. Required skills and equipment\n")
+	prompt.WriteString("3. Safety considerations\n")
+	prompt.WriteString("4. Quality standards\n")
+	prompt.WriteString("5. Timeline and milestones\n")
+	
+	return prompt.String()
+}
+
+func (l *LLMIntegration) buildCommunicationPrompt(req *CommunicationRequest) string {
+	var prompt strings.Builder
+	
+	prompt.WriteString(fmt.Sprintf("Create a %s communication for a landscaping customer:\n\n", req.Type))
+	prompt.WriteString(fmt.Sprintf("Purpose: %s\n", req.Purpose))
+	prompt.WriteString(fmt.Sprintf("Customer Name: %s\n", req.CustomerName))
+	prompt.WriteString(fmt.Sprintf("Tone: %s\n", req.Tone))
+	
+	if req.Context != "" {
+		prompt.WriteString(fmt.Sprintf("Context: %s\n", req.Context))
+	}
+	
+	if len(req.KeyPoints) > 0 {
+		prompt.WriteString("\nKey Points to Include:\n")
+		for _, point := range req.KeyPoints {
+			prompt.WriteString(fmt.Sprintf("- %s\n", point))
+		}
+	}
+	
+	prompt.WriteString("\nFormat the response with a clear subject line and professional body text.")
+	
+	return prompt.String()
+}
+
+func (l *LLMIntegration) buildScheduleOptimizationPrompt(req *ScheduleOptimizationRequest) string {
+	var prompt strings.Builder
+	
+	prompt.WriteString("Optimize the following landscaping job schedule:\n\n")
+	prompt.WriteString(fmt.Sprintf("Date Range: %s to %s\n", req.StartDate.Format("2006-01-02"), req.EndDate.Format("2006-01-02")))
+	prompt.WriteString(fmt.Sprintf("Available Crew Members: %d\n", req.CrewMembers))
+	prompt.WriteString(fmt.Sprintf("Service Area: %s\n", req.ServiceArea))
+	
+	prompt.WriteString("\nJobs to Schedule:\n")
+	for i, job := range req.Jobs {
+		prompt.WriteString(fmt.Sprintf("%d. %s (%s) - Duration: %s, Priority: %s\n", 
+			i+1, job.Title, job.Location, job.EstimatedDuration, job.Priority))
+	}
+	
+	if len(req.Constraints) > 0 {
+		prompt.WriteString("\nConstraints:\n")
+		for _, constraint := range req.Constraints {
+			prompt.WriteString(fmt.Sprintf("- %s\n", constraint))
+		}
+	}
+	
+	prompt.WriteString("\nProvide scheduling recommendations that minimize travel time, balance workload, and respect priorities.")
+	
+	return prompt.String()
+}
+
+func (l *LLMIntegration) parseQuoteResponse(content string) (*QuoteGenerationResponse, error) {
+	// Simplified parsing - in production, use structured output or JSON mode
+	return &QuoteGenerationResponse{
+		QuoteText:    content,
+		TotalAmount:  0, // Would parse from content
+		LineItems:    []QuoteLineItem{}, // Would parse from content
+		Assumptions:  []string{}, // Would parse from content
+		Timeline:     "", // Would parse from content
+	}, nil
+}
+
+func (l *LLMIntegration) parseImageAnalysis(content string) (*ImageAnalysis, error) {
+	// Simplified parsing - in production, use structured output
+	return &ImageAnalysis{
+		Summary:         content,
+		PlantTypes:      []string{}, // Would parse from content
+		LawnCondition:   "", // Would parse from content
+		Recommendations: []string{}, // Would parse from content
+		EstimatedCosts:  map[string]float64{}, // Would parse from content
+	}, nil
+}
+
+func (l *LLMIntegration) parseScheduleOptimization(content string) ([]ScheduleRecommendation, error) {
+	// Simplified parsing - in production, use structured output
+	return []ScheduleRecommendation{
+		{
+			JobID:       "",
+			TimeSlot:    "",
+			Reason:      content,
+			Priority:    1,
+		},
+	}, nil
+}
+
+func (l *LLMIntegration) extractSubject(content string) string {
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(strings.ToLower(line), "subject:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "Subject:"))
+		}
+	}
+	return "Generated Communication"
+}
+
+func (l *LLMIntegration) extractBody(content string) string {
+	lines := strings.Split(content, "\n")
+	inBody := false
+	var bodyLines []string
+	
+	for _, line := range lines {
+		if strings.HasPrefix(strings.ToLower(line), "subject:") {
+			inBody = true
+			continue
+		}
+		if inBody {
+			bodyLines = append(bodyLines, line)
+		}
+	}
+	
+	if len(bodyLines) == 0 {
+		return content
+	}
+	
+	return strings.Join(bodyLines, "\n")
+}
+
+// Data structures for the integration
+
+type QuoteGenerationRequest struct {
+	PropertyType        string   `json:"property_type"`
+	PropertySize        float64  `json:"property_size"`
+	Location           string   `json:"location"`
+	PropertyDescription string   `json:"property_description"`
+	Services           []string `json:"services"`
+	Timeline           string   `json:"timeline"`
+	Budget             float64  `json:"budget"`
+}
+
+type QuoteGenerationResponse struct {
+	RequestID    string          `json:"request_id"`
+	QuoteText    string          `json:"quote_text"`
+	TotalAmount  float64         `json:"total_amount"`
+	LineItems    []QuoteLineItem `json:"line_items"`
+	Assumptions  []string        `json:"assumptions"`
+	Timeline     string          `json:"timeline"`
+	GeneratedAt  time.Time       `json:"generated_at"`
+	Model        string          `json:"model"`
+	UsageTokens  int             `json:"usage_tokens"`
+}
+
+type QuoteLineItem struct {
+	Description string  `json:"description"`
+	Quantity    float64 `json:"quantity"`
+	UnitPrice   float64 `json:"unit_price"`
+	Total       float64 `json:"total"`
+}
+
+type JobDescriptionRequest struct {
+	JobTitle            string   `json:"job_title"`
+	Services            []string `json:"services"`
+	PropertyType        string   `json:"property_type"`
+	EstimatedDuration   string   `json:"estimated_duration"`
+	SpecialRequirements string   `json:"special_requirements"`
+}
+
+type JobDescriptionResponse struct {
+	RequestID   string    `json:"request_id"`
+	Description string    `json:"description"`
+	GeneratedAt time.Time `json:"generated_at"`
+	Model       string    `json:"model"`
+	UsageTokens int       `json:"usage_tokens"`
+}
+
+type ImageAnalysisRequest struct {
+	ImageURLs       []string `json:"image_urls"`
+	AnalysisPrompt  string   `json:"analysis_prompt"`
+	PropertyType    string   `json:"property_type"`
+}
+
+type ImageAnalysisResponse struct {
+	RequestID      string         `json:"request_id"`
+	Analysis       *ImageAnalysis `json:"analysis"`
+	GeneratedAt    time.Time      `json:"generated_at"`
+	Model          string         `json:"model"`
+	UsageTokens    int            `json:"usage_tokens"`
+	ImagesAnalyzed int            `json:"images_analyzed"`
+}
+
+type ImageAnalysis struct {
+	Summary         string             `json:"summary"`
+	PlantTypes      []string           `json:"plant_types"`
+	LawnCondition   string             `json:"lawn_condition"`
+	Recommendations []string           `json:"recommendations"`
+	EstimatedCosts  map[string]float64 `json:"estimated_costs"`
+}
+
+type CommunicationRequest struct {
+	Type         string   `json:"type"`         // "email", "sms", "letter"
+	Purpose      string   `json:"purpose"`      // "quote_follow_up", "appointment_reminder", etc.
+	CustomerName string   `json:"customer_name"`
+	Tone         string   `json:"tone"`         // "professional", "friendly", "formal"
+	Context      string   `json:"context"`
+	KeyPoints    []string `json:"key_points"`
+}
+
+type CommunicationResponse struct {
+	RequestID   string    `json:"request_id"`
+	Subject     string    `json:"subject"`
+	Body        string    `json:"body"`
+	GeneratedAt time.Time `json:"generated_at"`
+	Model       string    `json:"model"`
+	UsageTokens int       `json:"usage_tokens"`
+}
+
+type ScheduleOptimizationRequest struct {
+	StartDate    time.Time              `json:"start_date"`
+	EndDate      time.Time              `json:"end_date"`
+	CrewMembers  int                    `json:"crew_members"`
+	ServiceArea  string                 `json:"service_area"`
+	Jobs         []JobSummary           `json:"jobs"`
+	Constraints  []string               `json:"constraints"`
+}
+
+type JobSummary struct {
+	ID               string `json:"id"`
+	Title            string `json:"title"`
+	Location         string `json:"location"`
+	EstimatedDuration string `json:"estimated_duration"`
+	Priority         string `json:"priority"`
+}
+
+type ScheduleOptimizationResponse struct {
+	RequestID       string                  `json:"request_id"`
+	Recommendations []ScheduleRecommendation `json:"recommendations"`
+	GeneratedAt     time.Time               `json:"generated_at"`
+	Model           string                  `json:"model"`
+	UsageTokens     int                     `json:"usage_tokens"`
+}
+
+type ScheduleRecommendation struct {
+	JobID    string `json:"job_id"`
+	TimeSlot string `json:"time_slot"`
+	Reason   string `json:"reason"`
+	Priority int    `json:"priority"`
+}

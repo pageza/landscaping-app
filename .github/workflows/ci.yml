@@ -1,0 +1,392 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  GO_VERSION: '1.23.2'
+  NODE_VERSION: '18'
+  FLUTTER_VERSION: '3.16.5'
+
+jobs:
+  # Backend Go tests and linting
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: landscaping_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Run go fmt
+      run: |
+        fmt_output=$(go fmt ./...)
+        if [ -n "$fmt_output" ]; then
+          echo "Code is not formatted. Please run 'go fmt ./...'"
+          echo "$fmt_output"
+          exit 1
+        fi
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Install staticcheck
+      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+    - name: Run staticcheck
+      run: staticcheck ./...
+
+    - name: Install gosec
+      run: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+
+    - name: Run gosec security scanner
+      run: gosec -fmt sarif -out results.sarif ./...
+
+    - name: Upload SARIF file
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: results.sarif
+
+    - name: Run database migrations
+      run: |
+        go run backend/cmd/migrate/main.go up
+      env:
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/landscaping_test?sslmode=disable
+
+    - name: Run tests
+      run: |
+        go test -v -race -coverprofile=coverage.out ./...
+      env:
+        ENV: test
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/landscaping_test?sslmode=disable
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-jwt-secret
+        ENCRYPTION_KEY: test-encryption-key-32-chars!!
+
+    - name: Generate coverage report
+      run: go tool cover -html=coverage.out -o coverage.html
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        flags: backend
+        name: backend-coverage
+
+    - name: Upload coverage artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: backend-coverage
+        path: coverage.html
+
+  # Frontend Web tests
+  frontend-web-test:
+    name: Frontend Web Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: web/package-lock.json
+
+    - name: Install dependencies
+      run: |
+        cd web
+        npm ci
+
+    - name: Run linting
+      run: |
+        cd web
+        npm run lint
+
+    - name: Run tests
+      run: |
+        cd web
+        npm run test
+
+    - name: Build web application
+      run: |
+        cd web
+        npm run build
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: web-build
+        path: web/dist
+
+  # Mobile Flutter tests
+  mobile-test:
+    name: Mobile Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        cache: true
+
+    - name: Install dependencies
+      run: |
+        cd mobile
+        flutter pub get
+
+    - name: Verify formatting
+      run: |
+        cd mobile
+        dart format --output=none --set-exit-if-changed .
+
+    - name: Analyze code
+      run: |
+        cd mobile
+        flutter analyze
+
+    - name: Run tests
+      run: |
+        cd mobile
+        flutter test --coverage
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./mobile/coverage/lcov.info
+        flags: mobile
+        name: mobile-coverage
+
+  # Docker build test
+  docker-build-test:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-web-test]
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build API image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./docker/Dockerfile.api
+        push: false
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64
+
+    - name: Build Worker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./docker/Dockerfile.worker
+        push: false
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64
+
+    - name: Build Web image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./docker/Dockerfile.web
+        push: false
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64
+
+    - name: Test docker-compose (development)
+      run: |
+        cd docker
+        docker-compose -f docker-compose.dev.yml config
+
+  # Integration tests
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [backend-test]
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Start services
+      run: |
+        cd docker
+        docker-compose -f docker-compose.dev.yml up -d postgres redis
+        sleep 30
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Run integration tests
+      run: |
+        go test -v -tags=integration ./backend/tests/...
+      env:
+        ENV: test
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/landscaping_dev?sslmode=disable
+        REDIS_URL: redis://redis:redis123@localhost:6379
+
+    - name: Cleanup
+      run: |
+        cd docker
+        docker-compose -f docker-compose.dev.yml down
+
+  # Security scanning
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner (filesystem)
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Run Semgrep security scanner
+      uses: returntocorp/semgrep-action@v1
+      with:
+        publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+        generateSarif: "1"
+
+  # Dependency scanning
+  dependency-check:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install nancy
+      run: go install github.com/sonatypeoss/nancy@latest
+
+    - name: Run Go dependency check
+      run: |
+        go list -json -deps ./... | nancy sleuth
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Run npm audit (if package.json exists)
+      run: |
+        if [ -f "web/package.json" ]; then
+          cd web
+          npm audit --audit-level moderate
+        fi
+
+  # Performance tests
+  performance-test:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Start test environment
+      run: |
+        cd docker
+        docker-compose -f docker-compose.dev.yml up -d
+        sleep 60
+
+    - name: Install k6
+      run: |
+        sudo gpg -k
+        sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+        echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+        sudo apt-get update
+        sudo apt-get install k6
+
+    - name: Run performance tests
+      run: |
+        cd tests/performance
+        k6 run --out json=results.json api-load-test.js
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-results
+        path: tests/performance/results.json
+
+    - name: Cleanup
+      run: |
+        cd docker
+        docker-compose -f docker-compose.dev.yml down

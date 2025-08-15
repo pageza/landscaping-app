@@ -1,0 +1,177 @@
+name: landscaping_app
+description: "Landscaping SaaS Mobile Application - Customer and Crew Management"
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.4
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI and Design
+  cupertino_icons: ^1.0.8
+  material_design_icons_flutter: ^7.0.7296
+  google_fonts: ^6.2.1
+  flutter_svg: ^2.0.10+1
+
+  # State Management
+  riverpod: ^2.5.1
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+
+  # Navigation
+  go_router: ^14.6.2
+  auto_route: ^9.2.2
+
+  # Network & API
+  dio: ^5.7.0
+  retrofit: ^4.4.1
+  json_annotation: ^4.9.0
+  freezed_annotation: ^2.4.4
+
+  # Local Storage & Database
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  sqflite: ^2.3.3+2
+  shared_preferences: ^2.3.3
+  flutter_secure_storage: ^9.2.2
+
+  # Authentication & Security
+  local_auth: ^2.3.0
+  crypto: ^3.0.5
+  jwt_decoder: ^2.0.1
+
+  # Camera & Image
+  camera: ^0.11.0+2
+  image_picker: ^1.1.2
+  photo_view: ^0.15.0
+  cached_network_image: ^3.4.1
+  image: ^4.2.0
+  flutter_image_compress: ^2.3.0
+
+  # Permissions & Device
+  permission_handler: ^11.3.1
+  device_info_plus: ^10.1.2
+  package_info_plus: ^8.0.2
+
+  # Location & Maps
+  geolocator: ^13.0.1
+  google_maps_flutter: ^2.9.0
+  geocoding: ^3.0.0
+
+  # Push Notifications
+  firebase_core: ^3.8.0
+  firebase_messaging: ^15.1.4
+  flutter_local_notifications: ^18.0.1
+
+  # Connectivity & WebSocket
+  connectivity_plus: ^6.1.0
+  web_socket_channel: ^3.0.1
+
+  # Utils & Helpers
+  intl: ^0.19.0
+  uuid: ^4.5.1
+  url_launcher: ^6.3.1
+  path_provider: ^2.1.4
+  mime: ^1.0.6
+  file_picker: ^8.1.4
+
+  # Animations & UI
+  lottie: ^3.1.3
+  shimmer: ^3.0.0
+  flutter_staggered_grid_view: ^0.7.0
+
+  # Forms & Validation
+  reactive_forms: ^17.0.1
+  mask_text_input_formatter: ^2.9.0
+
+  # Logging
+  logger: ^2.4.0
+
+  # Development
+  flutter_dotenv: ^5.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # Linting and Code Quality
+  flutter_lints: ^4.0.0
+  very_good_analysis: ^6.0.0
+
+  # Code Generation
+  build_runner: ^2.4.12
+  json_serializable: ^6.8.0
+  freezed: ^2.5.7
+  retrofit_generator: ^9.1.4
+  riverpod_generator: ^2.4.3
+  auto_route_generator: ^9.0.0
+  hive_generator: ^2.0.1
+
+  # Testing
+  mockito: ^5.4.4
+  integration_test:
+    sdk: flutter
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+  uses-material-design: true
+
+  # Assets
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/lottie/
+    - .env
+
+  # An image asset can refer to one or more resolution-specific "variants", see
+  # https://flutter.dev/to/resolution-aware-images
+
+  # For details regarding adding assets from package dependencies, see
+  # https://flutter.dev/to/asset-from-package
+
+  # To add custom fonts to your application, add a fonts section here,
+  # in this "flutter" section. Each entry in this list should have a
+  # "family" key with the font family name, and a "fonts" key with a
+  # list giving the asset and other descriptors for the font. For
+  # example:
+  # fonts:
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
+  #       - asset: fonts/Schyler-Italic.ttf
+  #         style: italic
+  #   - family: Trajan Pro
+  #     fonts:
+  #       - asset: fonts/TrajanPro.ttf
+  #       - asset: fonts/TrajanPro_Bold.ttf
+  #         weight: 700
+  #
+  # For details regarding fonts from package dependencies,
+  # see https://flutter.dev/to/font-from-package

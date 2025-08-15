@@ -1,0 +1,274 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: landscaping_postgres_staging
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-landscaping_staging}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data_staging:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - landscaping_backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-landscaping_staging}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  redis:
+    image: redis:7-alpine
+    container_name: landscaping_redis_staging
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data_staging:/data
+    networks:
+      - landscaping_backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.25'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+
+  api:
+    image: ${DOCKER_REGISTRY:-landscaping}/api:${IMAGE_TAG:-staging}
+    container_name: landscaping_api_staging
+    environment:
+      - ENV=staging
+      - API_PORT=8080
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-landscaping_staging}?sslmode=require
+      - REDIS_URL=redis://default:${REDIS_PASSWORD}@redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - RATE_LIMIT_RPS=${RATE_LIMIT_RPS:-50}
+      - MAX_REQUEST_SIZE=${MAX_REQUEST_SIZE:-5MB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - landscaping_frontend
+      - landscaping_backend
+    volumes:
+      - api_logs_staging:/var/log/api
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  worker:
+    image: ${DOCKER_REGISTRY:-landscaping}/worker:${IMAGE_TAG:-staging}
+    container_name: landscaping_worker_staging
+    environment:
+      - ENV=staging
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-landscaping_staging}?sslmode=require
+      - REDIS_URL=redis://default:${REDIS_PASSWORD}@redis:6379
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-5}
+      - QUEUE_NAME=${QUEUE_NAME:-landscaping_jobs_staging}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - landscaping_backend
+    volumes:
+      - worker_logs_staging:/var/log/worker
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  web:
+    image: ${DOCKER_REGISTRY:-landscaping}/web:${IMAGE_TAG:-staging}
+    container_name: landscaping_web_staging
+    environment:
+      - ENV=staging
+      - WEB_PORT=8081
+      - API_BASE_URL=${API_BASE_URL:-https://staging-api.landscaping-app.com}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SESSION_SECRET=${SESSION_SECRET}
+    depends_on:
+      - api
+    networks:
+      - landscaping_frontend
+    volumes:
+      - web_logs_staging:/var/log/web
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+  nginx:
+    image: nginx:alpine
+    container_name: landscaping_nginx_staging
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-staging.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl-certs:/etc/ssl/certs:ro
+      - nginx_logs_staging:/var/log/nginx
+    depends_on:
+      - api
+      - web
+    networks:
+      - landscaping_frontend
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+
+  # Monitoring for staging
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: landscaping_prometheus_staging
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus-staging.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data_staging:/prometheus
+    networks:
+      - landscaping_backend
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: landscaping_grafana_staging
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data_staging:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - landscaping_backend
+      - landscaping_frontend
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  postgres_data_staging:
+    driver: local
+  redis_data_staging:
+    driver: local
+  api_logs_staging:
+    driver: local
+  worker_logs_staging:
+    driver: local
+  web_logs_staging:
+    driver: local
+  nginx_logs_staging:
+    driver: local
+  prometheus_data_staging:
+    driver: local
+  grafana_data_staging:
+    driver: local
+
+networks:
+  landscaping_frontend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.23.0.0/16
+  landscaping_backend:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.24.0.0/16

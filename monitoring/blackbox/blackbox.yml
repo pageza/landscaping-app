@@ -1,0 +1,133 @@
+modules:
+  http_2xx:
+    prober: http
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 201, 202, 204]
+      method: GET
+      preferred_ip_protocol: "ip4"
+      follow_redirects: true
+      fail_if_ssl: false
+      fail_if_not_ssl: false
+      tls_config:
+        insecure_skip_verify: false
+
+  http_post_2xx:
+    prober: http
+    http:
+      method: POST
+      valid_status_codes: [200, 201, 202]
+      headers:
+        Content-Type: application/json
+      body: '{"health": "check"}'
+
+  http_401:
+    prober: http
+    http:
+      valid_status_codes: [401]
+      method: GET
+
+  tcp_connect:
+    prober: tcp
+    tcp:
+      preferred_ip_protocol: "ip4"
+
+  pop3s_banner:
+    prober: tcp
+    tcp:
+      query_response:
+      - expect: "^+OK"
+      tls: true
+      tls_config:
+        insecure_skip_verify: false
+
+  ssh_banner:
+    prober: tcp
+    tcp:
+      query_response:
+      - expect: "^SSH-2.0-"
+
+  irc_banner:
+    prober: tcp
+    tcp:
+      query_response:
+      - send: "NICK prober"
+      - send: "USER prober prober prober :prober"
+      - expect: "PING :([^ ]+)"
+        send: "PONG ${1}"
+      - expect: "^:[^ ]+ 001"
+
+  icmp:
+    prober: icmp
+    icmp:
+      preferred_ip_protocol: "ip4"
+
+  dns:
+    prober: dns
+    dns:
+      query_name: "landscaping-app.com"
+      query_type: "A"
+
+  # Application-specific health checks
+  api_health:
+    prober: http
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      preferred_ip_protocol: "ip4"
+      follow_redirects: false
+      fail_if_ssl: false
+      fail_if_not_ssl: false
+      body_regex: '.*healthy.*'
+
+  web_health:
+    prober: http
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      preferred_ip_protocol: "ip4"
+      follow_redirects: true
+      fail_if_ssl: false
+      fail_if_not_ssl: false
+
+  # Database connectivity
+  postgres_tcp:
+    prober: tcp
+    tcp:
+      preferred_ip_protocol: "ip4"
+
+  redis_tcp:
+    prober: tcp
+    tcp:
+      preferred_ip_protocol: "ip4"
+      query_response:
+      - send: "PING"
+      - expect: "+PONG"
+
+  # SSL certificate monitoring
+  ssl_expiry:
+    prober: tcp
+    tcp:
+      tls: true
+      tls_config:
+        insecure_skip_verify: false
+
+  # Custom application endpoints
+  login_endpoint:
+    prober: http
+    http:
+      valid_status_codes: [200, 401]  # 401 is expected for login page
+      method: GET
+      preferred_ip_protocol: "ip4"
+      follow_redirects: true
+
+  api_auth_endpoint:
+    prober: http
+    http:
+      valid_status_codes: [401]  # Should return 401 without auth
+      method: GET
+      preferred_ip_protocol: "ip4"
+      headers:
+        Content-Type: application/json

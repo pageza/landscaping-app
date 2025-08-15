@@ -1,0 +1,175 @@
+{
+  "api": {
+    "family": "landscaping-api",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "1024",
+    "memory": "2048",
+    "executionRoleArn": "arn:aws:iam::ACCOUNT:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::ACCOUNT:role/landscaping-task-role",
+    "containerDefinitions": [
+      {
+        "name": "landscaping-api",
+        "image": "ghcr.io/landscaping-app/landscaping-app/api:latest",
+        "portMappings": [
+          {
+            "containerPort": 8080,
+            "protocol": "tcp"
+          }
+        ],
+        "essential": true,
+        "environment": [
+          {
+            "name": "ENV",
+            "value": "production"
+          },
+          {
+            "name": "API_PORT",
+            "value": "8080"
+          }
+        ],
+        "secrets": [
+          {
+            "name": "DATABASE_URL",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:landscaping/prod/database-url"
+          },
+          {
+            "name": "REDIS_URL",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:landscaping/prod/redis-url"
+          },
+          {
+            "name": "JWT_SECRET",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:landscaping/prod/jwt-secret"
+          },
+          {
+            "name": "ENCRYPTION_KEY",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:landscaping/prod/encryption-key"
+          }
+        ],
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/landscaping-api",
+            "awslogs-region": "us-east-1",
+            "awslogs-stream-prefix": "ecs"
+          }
+        },
+        "healthCheck": {
+          "command": ["CMD-SHELL", "/api --health-check"],
+          "interval": 30,
+          "timeout": 5,
+          "retries": 3,
+          "startPeriod": 60
+        }
+      }
+    ]
+  },
+  "worker": {
+    "family": "landscaping-worker",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "1024",
+    "memory": "2048",
+    "executionRoleArn": "arn:aws:iam::ACCOUNT:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::ACCOUNT:role/landscaping-task-role",
+    "containerDefinitions": [
+      {
+        "name": "landscaping-worker",
+        "image": "ghcr.io/landscaping-app/landscaping-app/worker:latest",
+        "essential": true,
+        "environment": [
+          {
+            "name": "ENV",
+            "value": "production"
+          },
+          {
+            "name": "WORKER_CONCURRENCY",
+            "value": "10"
+          }
+        ],
+        "secrets": [
+          {
+            "name": "DATABASE_URL",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:landscaping/prod/database-url"
+          },
+          {
+            "name": "REDIS_URL",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:landscaping/prod/redis-url"
+          }
+        ],
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/landscaping-worker",
+            "awslogs-region": "us-east-1",
+            "awslogs-stream-prefix": "ecs"
+          }
+        },
+        "healthCheck": {
+          "command": ["CMD-SHELL", "/worker --health-check"],
+          "interval": 30,
+          "timeout": 5,
+          "retries": 3,
+          "startPeriod": 60
+        }
+      }
+    ]
+  },
+  "web": {
+    "family": "landscaping-web",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "512",
+    "memory": "1024",
+    "executionRoleArn": "arn:aws:iam::ACCOUNT:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::ACCOUNT:role/landscaping-task-role",
+    "containerDefinitions": [
+      {
+        "name": "landscaping-web",
+        "image": "ghcr.io/landscaping-app/landscaping-app/web:latest",
+        "portMappings": [
+          {
+            "containerPort": 8081,
+            "protocol": "tcp"
+          }
+        ],
+        "essential": true,
+        "environment": [
+          {
+            "name": "ENV",
+            "value": "production"
+          },
+          {
+            "name": "WEB_PORT",
+            "value": "8081"
+          },
+          {
+            "name": "API_BASE_URL",
+            "value": "https://api.landscaping-app.com"
+          }
+        ],
+        "secrets": [
+          {
+            "name": "SESSION_SECRET",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:landscaping/prod/session-secret"
+          }
+        ],
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/landscaping-web",
+            "awslogs-region": "us-east-1",
+            "awslogs-stream-prefix": "ecs"
+          }
+        },
+        "healthCheck": {
+          "command": ["CMD-SHELL", "/web-server --health-check"],
+          "interval": 30,
+          "timeout": 5,
+          "retries": 3,
+          "startPeriod": 60
+        }
+      }
+    ]
+  }
+}

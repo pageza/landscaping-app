@@ -1,0 +1,303 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: landscaping_postgres_prod
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - landscaping_backend
+    secrets:
+      - postgres_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  redis:
+    image: redis:7-alpine
+    container_name: landscaping_redis_prod
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_data_prod:/data
+      - ./redis-prod.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - landscaping_backend
+    secrets:
+      - redis_password
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "$(cat /run/secrets/redis_password)", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  api:
+    image: ${DOCKER_REGISTRY:-landscaping}/api:${IMAGE_TAG:-latest}
+    container_name: landscaping_api_prod
+    environment:
+      - ENV=production
+      - API_PORT=8080
+      - DATABASE_URL=postgres://${POSTGRES_USER}:$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB}?sslmode=require
+      - REDIS_URL=redis://default:$(cat /run/secrets/redis_password)@redis:6379
+      - JWT_SECRET_FILE=/run/secrets/jwt_secret
+      - ENCRYPTION_KEY_FILE=/run/secrets/encryption_key
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - RATE_LIMIT_RPS=${RATE_LIMIT_RPS:-100}
+      - MAX_REQUEST_SIZE=${MAX_REQUEST_SIZE:-10MB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - landscaping_frontend
+      - landscaping_backend
+    secrets:
+      - postgres_password
+      - redis_password
+      - jwt_secret
+      - encryption_key
+    volumes:
+      - api_logs_prod:/var/log/api
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+
+  worker:
+    image: ${DOCKER_REGISTRY:-landscaping}/worker:${IMAGE_TAG:-latest}
+    container_name: landscaping_worker_prod
+    environment:
+      - ENV=production
+      - DATABASE_URL=postgres://${POSTGRES_USER}:$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB}?sslmode=require
+      - REDIS_URL=redis://default:$(cat /run/secrets/redis_password)@redis:6379
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-10}
+      - QUEUE_NAME=${QUEUE_NAME:-landscaping_jobs}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - landscaping_backend
+    secrets:
+      - postgres_password
+      - redis_password
+    volumes:
+      - worker_logs_prod:/var/log/worker
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+
+  web:
+    image: ${DOCKER_REGISTRY:-landscaping}/web:${IMAGE_TAG:-latest}
+    container_name: landscaping_web_prod
+    environment:
+      - ENV=production
+      - WEB_PORT=8081
+      - API_BASE_URL=${API_BASE_URL:-https://api.landscaping-app.com}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - SESSION_SECRET_FILE=/run/secrets/session_secret
+    depends_on:
+      - api
+    networks:
+      - landscaping_frontend
+    secrets:
+      - session_secret
+    volumes:
+      - web_logs_prod:/var/log/web
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+
+  nginx:
+    image: nginx:alpine
+    container_name: landscaping_nginx_prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-prod.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl-certs:/etc/ssl/certs:ro
+      - nginx_logs_prod:/var/log/nginx
+    depends_on:
+      - api
+      - web
+    networks:
+      - landscaping_frontend
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+
+  # Database backup service
+  postgres-backup:
+    image: prodrigestivill/postgres-backup-local:15
+    container_name: landscaping_postgres_backup
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_EXTRA_OPTS: "-Z 9 --schema=public --blobs"
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+      HEALTHCHECK_PORT: 8080
+    volumes:
+      - postgres_backups_prod:/backups
+    depends_on:
+      - postgres
+    networks:
+      - landscaping_backend
+    secrets:
+      - postgres_password
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  postgres_data_prod:
+    driver: local
+  redis_data_prod:
+    driver: local
+  postgres_backups_prod:
+    driver: local
+  api_logs_prod:
+    driver: local
+  worker_logs_prod:
+    driver: local
+  web_logs_prod:
+    driver: local
+  nginx_logs_prod:
+    driver: local
+
+networks:
+  landscaping_frontend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+  landscaping_backend:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  redis_password:
+    file: ./secrets/redis_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  encryption_key:
+    file: ./secrets/encryption_key.txt
+  session_secret:
+    file: ./secrets/session_secret.txt

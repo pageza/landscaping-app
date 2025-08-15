@@ -1,0 +1,996 @@
+package services
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/pageza/landscaping-app/backend/internal/domain"
+)
+
+// EnhancedBillingService extends the basic billing service with advanced SaaS features
+type EnhancedBillingService interface {
+	BillingService // Inherit basic billing functionality
+	
+	// Advanced subscription management
+	CreateTrialSubscription(ctx context.Context, req *TrialSubscriptionRequest) (*domain.Subscription, error)
+	ConvertTrialToPaid(ctx context.Context, subscriptionID uuid.UUID, paymentMethodID string) (*domain.Subscription, error)
+	ChangePlan(ctx context.Context, subscriptionID uuid.UUID, newPlanID string, prorationBehavior string) (*PlanChangeResponse, error)
+	PauseSubscription(ctx context.Context, subscriptionID uuid.UUID, pauseUntil *time.Time) error
+	ResumeSubscription(ctx context.Context, subscriptionID uuid.UUID) error
+	
+	// Usage-based billing
+	RecordUsage(ctx context.Context, req *UsageRecordRequest) error
+	GetUsageReports(ctx context.Context, subscriptionID uuid.UUID, period *BillingPeriod) (*UsageReport, error)
+	CalculateUsageCharges(ctx context.Context, subscriptionID uuid.UUID, period *BillingPeriod) (*UsageCharges, error)
+	
+	// Dunning management
+	ProcessFailedPayment(ctx context.Context, paymentID uuid.UUID) error
+	RetryFailedPayment(ctx context.Context, subscriptionID uuid.UUID) (*PaymentAttemptResult, error)
+	HandleDunningProcess(ctx context.Context, subscriptionID uuid.UUID) error
+	
+	// Revenue recognition and analytics
+	CalculateMonthlyRecurringRevenue(ctx context.Context) (*MRRCalculation, error)
+	GetRevenueRecognition(ctx context.Context, period *BillingPeriod) (*RevenueRecognition, error)
+	GetCustomerLifetimeValue(ctx context.Context, tenantID uuid.UUID) (*CustomerLifetimeValue, error)
+	GenerateRevenueReport(ctx context.Context, filter *RevenueReportFilter) (*RevenueReport, error)
+	
+	// Billing analytics
+	GetChurnMetrics(ctx context.Context, period *BillingPeriod) (*ChurnMetrics, error)
+	GetSubscriptionMetrics(ctx context.Context, period *BillingPeriod) (*SubscriptionMetrics, error)
+	GetPaymentMethodAnalytics(ctx context.Context, period *BillingPeriod) (*PaymentMethodAnalytics, error)
+	
+	// Discount and coupon management
+	CreateCoupon(ctx context.Context, req *CouponRequest) (*Coupon, error)
+	ApplyCoupon(ctx context.Context, subscriptionID uuid.UUID, couponCode string) (*CouponApplication, error)
+	RemoveCoupon(ctx context.Context, subscriptionID uuid.UUID) error
+	
+	// Invoice management
+	GenerateInvoice(ctx context.Context, subscriptionID uuid.UUID, billingPeriod *BillingPeriod) (*Invoice, error)
+	SendInvoice(ctx context.Context, invoiceID uuid.UUID) error
+	MarkInvoiceAsPaid(ctx context.Context, invoiceID uuid.UUID, paymentID uuid.UUID) error
+	VoidInvoice(ctx context.Context, invoiceID uuid.UUID, reason string) error
+	
+	// Tax management
+	CalculateTax(ctx context.Context, amount float64, tenantID uuid.UUID) (*TaxCalculation, error)
+	UpdateTaxSettings(ctx context.Context, tenantID uuid.UUID, settings *TaxSettings) error
+	GenerateTaxReport(ctx context.Context, period *BillingPeriod) (*TaxReport, error)
+	
+	// Payment method management
+	AddPaymentMethod(ctx context.Context, tenantID uuid.UUID, req *PaymentMethodRequest) (*PaymentMethod, error)
+	UpdateDefaultPaymentMethod(ctx context.Context, tenantID uuid.UUID, paymentMethodID string) error
+	RemovePaymentMethod(ctx context.Context, tenantID uuid.UUID, paymentMethodID string) error
+	
+	// Billing preferences
+	UpdateBillingPreferences(ctx context.Context, tenantID uuid.UUID, prefs *BillingPreferences) error
+	GetBillingPreferences(ctx context.Context, tenantID uuid.UUID) (*BillingPreferences, error)
+	
+	// Webhooks and notifications
+	ProcessStripeWebhook(ctx context.Context, payload []byte, signature string) error
+	SendBillingNotification(ctx context.Context, req *BillingNotificationRequest) error
+}
+
+// Request/Response structures
+type TrialSubscriptionRequest struct {
+	TenantID      uuid.UUID `json:"tenant_id"`
+	PlanID        string    `json:"plan_id"`
+	TrialDays     int       `json:"trial_days"`
+	TrialEndsAt   *time.Time `json:"trial_ends_at"`
+	AutoConvert   bool      `json:"auto_convert"`
+}
+
+type PlanChangeResponse struct {
+	Subscription    *domain.Subscription `json:"subscription"`
+	ProrationCredit float64              `json:"proration_credit"`
+	ImmediateCharge float64              `json:"immediate_charge"`
+	NextBillingDate time.Time            `json:"next_billing_date"`
+	Changes         []PlanChangeDetail   `json:"changes"`
+}
+
+type PlanChangeDetail struct {
+	Item        string  `json:"item"`
+	OldValue    string  `json:"old_value"`
+	NewValue    string  `json:"new_value"`
+	PriceImpact float64 `json:"price_impact"`
+}
+
+type UsageRecordRequest struct {
+	SubscriptionID  uuid.UUID              `json:"subscription_id"`
+	MetricName      string                 `json:"metric_name"`
+	Quantity        float64                `json:"quantity"`
+	Timestamp       time.Time              `json:"timestamp"`
+	Action          string                 `json:"action"` // increment, set
+	Properties      map[string]interface{} `json:"properties"`
+	IdempotencyKey  *string                `json:"idempotency_key"`
+}
+
+type UsageReport struct {
+	SubscriptionID    uuid.UUID           `json:"subscription_id"`
+	Period            BillingPeriod       `json:"period"`
+	UsageMetrics      []UsageMetric       `json:"usage_metrics"`
+	TotalUsageCharges float64             `json:"total_usage_charges"`
+	BaseSubscription  float64             `json:"base_subscription"`
+	TotalAmount       float64             `json:"total_amount"`
+	Currency          string              `json:"currency"`
+}
+
+type UsageMetric struct {
+	MetricName     string  `json:"metric_name"`
+	TotalQuantity  float64 `json:"total_quantity"`
+	IncludedQuantity float64 `json:"included_quantity"`
+	OverageQuantity float64 `json:"overage_quantity"`
+	UnitPrice      float64 `json:"unit_price"`
+	TotalCost      float64 `json:"total_cost"`
+	Unit           string  `json:"unit"`
+}
+
+type UsageCharges struct {
+	SubscriptionID uuid.UUID              `json:"subscription_id"`
+	Period         BillingPeriod          `json:"period"`
+	Charges        []UsageCharge          `json:"charges"`
+	TotalAmount    float64                `json:"total_amount"`
+	Currency       string                 `json:"currency"`
+	Details        map[string]interface{} `json:"details"`
+}
+
+type UsageCharge struct {
+	MetricName      string  `json:"metric_name"`
+	Quantity        float64 `json:"quantity"`
+	UnitPrice       float64 `json:"unit_price"`
+	Amount          float64 `json:"amount"`
+	Description     string  `json:"description"`
+	BillingTier     *string `json:"billing_tier"`
+}
+
+type PaymentAttemptResult struct {
+	Success         bool      `json:"success"`
+	PaymentID       *uuid.UUID `json:"payment_id"`
+	ErrorCode       *string   `json:"error_code"`
+	ErrorMessage    *string   `json:"error_message"`
+	NextRetryAt     *time.Time `json:"next_retry_at"`
+	AttemptsRemaining int     `json:"attempts_remaining"`
+}
+
+type MRRCalculation struct {
+	CurrentMRR      float64              `json:"current_mrr"`
+	PreviousMRR     float64              `json:"previous_mrr"`
+	MRRGrowth       float64              `json:"mrr_growth"`
+	MRRGrowthRate   float64              `json:"mrr_growth_rate"`
+	NewMRR          float64              `json:"new_mrr"`
+	ExpansionMRR    float64              `json:"expansion_mrr"`
+	ContractionMRR  float64              `json:"contraction_mrr"`
+	ChurnedMRR      float64              `json:"churned_mrr"`
+	NetNewMRR       float64              `json:"net_new_mrr"`
+	MRRByPlan       map[string]float64   `json:"mrr_by_plan"`
+	CalculatedAt    time.Time            `json:"calculated_at"`
+}
+
+type RevenueRecognition struct {
+	Period                BillingPeriod          `json:"period"`
+	TotalRevenue          float64                `json:"total_revenue"`
+	RecognizedRevenue     float64                `json:"recognized_revenue"`
+	DeferredRevenue       float64                `json:"deferred_revenue"`
+	UnbilledRevenue       float64                `json:"unbilled_revenue"`
+	RevenueByCategory     map[string]float64     `json:"revenue_by_category"`
+	RevenueSchedule       []RevenueScheduleItem  `json:"revenue_schedule"`
+}
+
+type RevenueScheduleItem struct {
+	Date        time.Time `json:"date"`
+	Amount      float64   `json:"amount"`
+	Description string    `json:"description"`
+	Category    string    `json:"category"`
+}
+
+type CustomerLifetimeValue struct {
+	TenantID              uuid.UUID `json:"tenant_id"`
+	HistoricalLTV         float64   `json:"historical_ltv"`
+	PredictiveLTV         float64   `json:"predictive_ltv"`
+	AverageMonthlyRevenue float64   `json:"average_monthly_revenue"`
+	CustomerLifespan      float64   `json:"customer_lifespan_months"`
+	ChurnProbability      float64   `json:"churn_probability"`
+	SegmentLTV            float64   `json:"segment_ltv"`
+	CalculatedAt          time.Time `json:"calculated_at"`
+}
+
+type ChurnMetrics struct {
+	Period               BillingPeriod `json:"period"`
+	CustomerChurnRate    float64       `json:"customer_churn_rate"`
+	RevenueChurnRate     float64       `json:"revenue_churn_rate"`
+	VoluntaryChurnRate   float64       `json:"voluntary_churn_rate"`
+	InvoluntaryChurnRate float64       `json:"involuntary_churn_rate"`
+	NetChurnRate         float64       `json:"net_churn_rate"`
+	ChurnedCustomers     int           `json:"churned_customers"`
+	ChurnedRevenue       float64       `json:"churned_revenue"`
+	ChurnReasons         map[string]int `json:"churn_reasons"`
+}
+
+type SubscriptionMetrics struct {
+	Period                BillingPeriod      `json:"period"`
+	NewSubscriptions      int                `json:"new_subscriptions"`
+	CancelledSubscriptions int               `json:"cancelled_subscriptions"`
+	PausedSubscriptions   int                `json:"paused_subscriptions"`
+	ReactivatedSubscriptions int            `json:"reactivated_subscriptions"`
+	UpgradedSubscriptions int                `json:"upgraded_subscriptions"`
+	DowngradedSubscriptions int              `json:"downgraded_subscriptions"`
+	TrialConversions      int                `json:"trial_conversions"`
+	TrialConversionRate   float64            `json:"trial_conversion_rate"`
+	AverageRevenuePerUser float64            `json:"average_revenue_per_user"`
+	SubscriptionsByPlan   map[string]int     `json:"subscriptions_by_plan"`
+}
+
+type PaymentMethodAnalytics struct {
+	Period                BillingPeriod          `json:"period"`
+	PaymentsByMethod      map[string]int         `json:"payments_by_method"`
+	SuccessRatesByMethod  map[string]float64     `json:"success_rates_by_method"`
+	FailureReasons        map[string]int         `json:"failure_reasons"`
+	AverageProcessingTime map[string]float64     `json:"average_processing_time"`
+	ChargebackRate        float64                `json:"chargeback_rate"`
+	DisputeRate           float64                `json:"dispute_rate"`
+}
+
+type Coupon struct {
+	ID               string                 `json:"id"`
+	Code             string                 `json:"code"`
+	Type             string                 `json:"type"` // percentage, fixed_amount
+	Value            float64                `json:"value"`
+	Currency         *string                `json:"currency"`
+	MaxRedemptions   *int                   `json:"max_redemptions"`
+	UsedCount        int                    `json:"used_count"`
+	ValidFrom        time.Time              `json:"valid_from"`
+	ValidUntil       *time.Time             `json:"valid_until"`
+	ApplicablePlans  []string               `json:"applicable_plans"`
+	FirstTimeOnly    bool                   `json:"first_time_only"`
+	Metadata         map[string]interface{} `json:"metadata"`
+	CreatedAt        time.Time              `json:"created_at"`
+	UpdatedAt        time.Time              `json:"updated_at"`
+}
+
+type CouponRequest struct {
+	Code            string                 `json:"code"`
+	Type            string                 `json:"type"`
+	Value           float64                `json:"value"`
+	Currency        *string                `json:"currency"`
+	MaxRedemptions  *int                   `json:"max_redemptions"`
+	ValidFrom       time.Time              `json:"valid_from"`
+	ValidUntil      *time.Time             `json:"valid_until"`
+	ApplicablePlans []string               `json:"applicable_plans"`
+	FirstTimeOnly   bool                   `json:"first_time_only"`
+	Metadata        map[string]interface{} `json:"metadata"`
+}
+
+type CouponApplication struct {
+	ID             uuid.UUID              `json:"id"`
+	SubscriptionID uuid.UUID              `json:"subscription_id"`
+	CouponID       string                 `json:"coupon_id"`
+	CouponCode     string                 `json:"coupon_code"`
+	DiscountAmount float64                `json:"discount_amount"`
+	AppliedAt      time.Time              `json:"applied_at"`
+	ValidUntil     *time.Time             `json:"valid_until"`
+	Status         string                 `json:"status"`
+	Metadata       map[string]interface{} `json:"metadata"`
+}
+
+type Invoice struct {
+	ID                  uuid.UUID              `json:"id"`
+	TenantID            uuid.UUID              `json:"tenant_id"`
+	SubscriptionID      uuid.UUID              `json:"subscription_id"`
+	InvoiceNumber       string                 `json:"invoice_number"`
+	Status              string                 `json:"status"`
+	Currency            string                 `json:"currency"`
+	Subtotal            float64                `json:"subtotal"`
+	TaxAmount           float64                `json:"tax_amount"`
+	DiscountAmount      float64                `json:"discount_amount"`
+	TotalAmount         float64                `json:"total_amount"`
+	AmountDue           float64                `json:"amount_due"`
+	AmountPaid          float64                `json:"amount_paid"`
+	LineItems           []InvoiceLineItem      `json:"line_items"`
+	BillingPeriod       BillingPeriod          `json:"billing_period"`
+	IssueDate           time.Time              `json:"issue_date"`
+	DueDate             time.Time              `json:"due_date"`
+	PaidAt              *time.Time             `json:"paid_at"`
+	VoidedAt            *time.Time             `json:"voided_at"`
+	VoidReason          *string                `json:"void_reason"`
+	Metadata            map[string]interface{} `json:"metadata"`
+	CreatedAt           time.Time              `json:"created_at"`
+	UpdatedAt           time.Time              `json:"updated_at"`
+}
+
+// InvoiceLineItem is defined in billing_service.go
+
+type TaxCalculation struct {
+	SubtotalAmount    float64              `json:"subtotal_amount"`
+	TaxableAmount     float64              `json:"taxable_amount"`
+	TaxAmount         float64              `json:"tax_amount"`
+	TotalAmount       float64              `json:"total_amount"`
+	TaxRate           float64              `json:"tax_rate"`
+	TaxJurisdiction   string               `json:"tax_jurisdiction"`
+	TaxBreakdown      []TaxBreakdownItem   `json:"tax_breakdown"`
+	ExemptionReason   *string              `json:"exemption_reason"`
+	Metadata          map[string]interface{} `json:"metadata"`
+}
+
+type TaxBreakdownItem struct {
+	TaxType        string  `json:"tax_type"`
+	TaxRate        float64 `json:"tax_rate"`
+	TaxableAmount  float64 `json:"taxable_amount"`
+	TaxAmount      float64 `json:"tax_amount"`
+	Jurisdiction   string  `json:"jurisdiction"`
+}
+
+type TaxSettings struct {
+	TenantID        uuid.UUID              `json:"tenant_id"`
+	TaxExempt       bool                   `json:"tax_exempt"`
+	TaxID           *string                `json:"tax_id"`
+	BusinessType    *string                `json:"business_type"`
+	Address         TaxAddress             `json:"address"`
+	ExemptionReason *string                `json:"exemption_reason"`
+	Metadata        map[string]interface{} `json:"metadata"`
+}
+
+type TaxAddress struct {
+	Line1      string  `json:"line1"`
+	Line2      *string `json:"line2"`
+	City       string  `json:"city"`
+	State      string  `json:"state"`
+	PostalCode string  `json:"postal_code"`
+	Country    string  `json:"country"`
+}
+
+type PaymentMethod struct {
+	ID            string                 `json:"id"`
+	TenantID      uuid.UUID              `json:"tenant_id"`
+	Type          string                 `json:"type"`
+	IsDefault     bool                   `json:"is_default"`
+	Status        string                 `json:"status"`
+	Card          *PaymentMethodCard     `json:"card,omitempty"`
+	BankAccount   *PaymentMethodBank     `json:"bank_account,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata"`
+	CreatedAt     time.Time              `json:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
+}
+
+type PaymentMethodCard struct {
+	Brand       string `json:"brand"`
+	Last4       string `json:"last4"`
+	ExpMonth    int    `json:"exp_month"`
+	ExpYear     int    `json:"exp_year"`
+	Fingerprint string `json:"fingerprint"`
+	Country     string `json:"country"`
+}
+
+type PaymentMethodBank struct {
+	BankName      string `json:"bank_name"`
+	AccountType   string `json:"account_type"`
+	Last4         string `json:"last4"`
+	RoutingNumber string `json:"routing_number"`
+	Country       string `json:"country"`
+}
+
+type PaymentMethodRequest struct {
+	Type         string                 `json:"type"`
+	Token        *string                `json:"token,omitempty"`
+	Card         *CardRequest           `json:"card,omitempty"`
+	BankAccount  *BankAccountRequest    `json:"bank_account,omitempty"`
+	SetAsDefault bool                   `json:"set_as_default"`
+	Metadata     map[string]interface{} `json:"metadata"`
+}
+
+type CardRequest struct {
+	Number   string `json:"number"`
+	ExpMonth int    `json:"exp_month"`
+	ExpYear  int    `json:"exp_year"`
+	CVC      string `json:"cvc"`
+}
+
+type BankAccountRequest struct {
+	AccountNumber string `json:"account_number"`
+	RoutingNumber string `json:"routing_number"`
+	AccountType   string `json:"account_type"`
+}
+
+type BillingPreferences struct {
+	TenantID              uuid.UUID              `json:"tenant_id"`
+	Currency              string                 `json:"currency"`
+	InvoiceDeliveryMethod string                 `json:"invoice_delivery_method"` // email, postal
+	PaymentTerms          int                    `json:"payment_terms_days"`
+	AutoPay               bool                   `json:"auto_pay"`
+	BillingEmail          string                 `json:"billing_email"`
+	CCEmails              []string               `json:"cc_emails"`
+	BillingAddress        TaxAddress             `json:"billing_address"`
+	PurchaseOrderNumber   *string                `json:"purchase_order_number"`
+	Metadata              map[string]interface{} `json:"metadata"`
+	CreatedAt             time.Time              `json:"created_at"`
+	UpdatedAt             time.Time              `json:"updated_at"`
+}
+
+type BillingNotificationRequest struct {
+	TenantID      uuid.UUID              `json:"tenant_id"`
+	Type          string                 `json:"type"` // invoice_created, payment_failed, trial_ending, etc.
+	Subject       string                 `json:"subject"`
+	Message       string                 `json:"message"`
+	TemplateID    *string                `json:"template_id"`
+	TemplateData  map[string]interface{} `json:"template_data"`
+	Recipients    []string               `json:"recipients"`
+	Priority      string                 `json:"priority"`
+	SendAt        *time.Time             `json:"send_at"`
+}
+
+// Supporting structures
+type BillingPeriod struct {
+	StartDate time.Time `json:"start_date"`
+	EndDate   time.Time `json:"end_date"`
+}
+
+type RevenueReportFilter struct {
+	TenantIDs    []uuid.UUID `json:"tenant_ids,omitempty"`
+	Plans        []string    `json:"plans,omitempty"`
+	StartDate    time.Time   `json:"start_date"`
+	EndDate      time.Time   `json:"end_date"`
+	Granularity  string      `json:"granularity"` // daily, weekly, monthly, quarterly
+	Currency     string      `json:"currency"`
+	IncludeUsage bool        `json:"include_usage"`
+}
+
+type RevenueReport struct {
+	Filter              RevenueReportFilter    `json:"filter"`
+	TotalRevenue        float64                `json:"total_revenue"`
+	RecurringRevenue    float64                `json:"recurring_revenue"`
+	UsageRevenue        float64                `json:"usage_revenue"`
+	OneTimeRevenue      float64                `json:"one_time_revenue"`
+	RefundedAmount      float64                `json:"refunded_amount"`
+	NetRevenue          float64                `json:"net_revenue"`
+	TimeSeriesData      []RevenueDataPoint     `json:"time_series_data"`
+	RevenueByPlan       map[string]float64     `json:"revenue_by_plan"`
+	RevenueByTenant     map[string]float64     `json:"revenue_by_tenant"`
+	PaymentMethodMix    map[string]float64     `json:"payment_method_mix"`
+	TaxBreakdown        map[string]float64     `json:"tax_breakdown"`
+	GeneratedAt         time.Time              `json:"generated_at"`
+}
+
+type TaxReport struct {
+	Period           BillingPeriod          `json:"period"`
+	TotalTaxCollected float64               `json:"total_tax_collected"`
+	TaxableRevenue   float64                `json:"taxable_revenue"`
+	ExemptRevenue    float64                `json:"exempt_revenue"`
+	TaxByJurisdiction map[string]float64    `json:"tax_by_jurisdiction"`
+	TaxByType        map[string]float64     `json:"tax_by_type"`
+	TaxRemitted      float64                `json:"tax_remitted"`
+	TaxLiability     float64                `json:"tax_liability"`
+	DetailedItems    []TaxReportLineItem    `json:"detailed_items"`
+	GeneratedAt      time.Time              `json:"generated_at"`
+}
+
+type TaxReportLineItem struct {
+	TenantID        uuid.UUID `json:"tenant_id"`
+	InvoiceID       uuid.UUID `json:"invoice_id"`
+	TransactionDate time.Time `json:"transaction_date"`
+	TaxableAmount   float64   `json:"taxable_amount"`
+	TaxAmount       float64   `json:"tax_amount"`
+	TaxRate         float64   `json:"tax_rate"`
+	Jurisdiction    string    `json:"jurisdiction"`
+	TaxType         string    `json:"tax_type"`
+}
+
+// Implementation
+type enhancedBillingServiceImpl struct {
+	*BillingServiceImpl // Embed the basic billing service
+	
+	// Additional dependencies
+	usageService      UsageTrackingService
+	taxService        TaxService
+	couponsService    CouponService
+	notificationService CommunicationService
+	metricsService    MetricsService
+	logger            *slog.Logger
+}
+
+// NewEnhancedBillingService creates a new enhanced billing service
+func NewEnhancedBillingService(
+	basicBillingService *BillingServiceImpl,
+	usageService UsageTrackingService,
+	taxService TaxService,
+	couponsService CouponService,
+	notificationService CommunicationService,
+	metricsService MetricsService,
+	logger *slog.Logger,
+) EnhancedBillingService {
+	return &enhancedBillingServiceImpl{
+		BillingServiceImpl:  basicBillingService,
+		usageService:        usageService,
+		taxService:          taxService,
+		couponsService:      couponsService,
+		notificationService: notificationService,
+		metricsService:      metricsService,
+		logger:              logger,
+	}
+}
+
+// CreateTrialSubscription creates a trial subscription
+func (s *enhancedBillingServiceImpl) CreateTrialSubscription(ctx context.Context, req *TrialSubscriptionRequest) (*domain.Subscription, error) {
+	s.logger.Info("Creating trial subscription", "tenant_id", req.TenantID, "plan_id", req.PlanID)
+
+	// Calculate trial end date
+	trialEnd := time.Now().AddDate(0, 0, req.TrialDays)
+	if req.TrialEndsAt != nil {
+		trialEnd = *req.TrialEndsAt
+	}
+
+	// Create subscription request
+	subscriptionReq := &SubscriptionCreateRequest{
+		TenantID:     req.TenantID,
+		PlanID:       req.PlanID,
+		BillingCycle: "monthly", // Default for trials
+		Amount:       0.0,       // No charge during trial
+		Currency:     "USD",
+		TrialDays:    req.TrialDays,
+	}
+
+	subscription, err := s.CreateSubscription(ctx, subscriptionReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create trial subscription: %w", err)
+	}
+
+	// Set trial-specific fields
+	subscription.Status = "trialing"
+	subscription.TrialEndsAt = &trialEnd
+
+	// Schedule trial end notification
+	if err := s.scheduleTrialEndNotification(ctx, subscription); err != nil {
+		s.logger.Warn("Failed to schedule trial end notification", "error", err)
+	}
+
+	s.logger.Info("Trial subscription created successfully", "subscription_id", subscription.ID)
+	return subscription, nil
+}
+
+// ConvertTrialToPaid converts a trial subscription to a paid subscription
+func (s *enhancedBillingServiceImpl) ConvertTrialToPaid(ctx context.Context, subscriptionID uuid.UUID, paymentMethodID string) (*domain.Subscription, error) {
+	s.logger.Info("Converting trial to paid subscription", "subscription_id", subscriptionID)
+
+	subscription, err := s.subscriptionRepo.GetByID(ctx, subscriptionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	if subscription.Status != "trialing" {
+		return nil, fmt.Errorf("subscription is not in trial status")
+	}
+
+	// Get plan details to determine pricing
+	plan, err := s.getPlanDetails(ctx, subscription.PlanID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get plan details: %w", err)
+	}
+
+	// Update subscription
+	subscription.Status = "active"
+	subscription.Amount = plan.Price
+	subscription.PaymentGatewayID = paymentMethodID
+	subscription.TrialEndsAt = nil
+	subscription.CurrentPeriodStart = time.Now()
+	subscription.CurrentPeriodEnd = s.calculateNextBillingDate(time.Now(), subscription.BillingCycle)
+	subscription.UpdatedAt = time.Now()
+
+	if err := s.subscriptionRepo.Update(ctx, subscription); err != nil {
+		return nil, fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	// Process initial payment
+	if err := s.processInitialPayment(ctx, subscription, paymentMethodID); err != nil {
+		s.logger.Error("Failed to process initial payment", "error", err)
+		// Revert subscription status
+		subscription.Status = "trialing"
+		s.subscriptionRepo.Update(ctx, subscription)
+		return nil, fmt.Errorf("failed to process initial payment: %w", err)
+	}
+
+	// Send conversion confirmation
+	if err := s.sendTrialConversionConfirmation(ctx, subscription); err != nil {
+		s.logger.Warn("Failed to send conversion confirmation", "error", err)
+	}
+
+	s.logger.Info("Trial converted to paid subscription successfully", "subscription_id", subscriptionID)
+	return subscription, nil
+}
+
+// ChangePlan changes a subscription plan with proration
+func (s *enhancedBillingServiceImpl) ChangePlan(ctx context.Context, subscriptionID uuid.UUID, newPlanID string, prorationBehavior string) (*PlanChangeResponse, error) {
+	s.logger.Info("Changing subscription plan", "subscription_id", subscriptionID, "new_plan", newPlanID)
+
+	subscription, err := s.subscriptionRepo.GetByID(ctx, subscriptionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	// Get old and new plan details
+	oldPlan, err := s.getPlanDetails(ctx, subscription.PlanID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get old plan details: %w", err)
+	}
+
+	newPlan, err := s.getPlanDetails(ctx, newPlanID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get new plan details: %w", err)
+	}
+
+	// Calculate proration
+	proration := s.calculateProration(subscription, oldPlan, newPlan, prorationBehavior)
+
+	// Update subscription
+	oldPlanID := subscription.PlanID
+	subscription.PlanID = newPlanID
+	subscription.Amount = newPlan.Price
+	subscription.UpdatedAt = time.Now()
+
+	if err := s.subscriptionRepo.Update(ctx, subscription); err != nil {
+		return nil, fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	// Process proration charge/credit
+	if proration.ImmediateCharge > 0 {
+		if err := s.processProrationCharge(ctx, subscription, proration.ImmediateCharge); err != nil {
+			s.logger.Error("Failed to process proration charge", "error", err)
+		}
+	}
+
+	// Build change details
+	changes := []PlanChangeDetail{
+		{
+			Item:        "plan_id",
+			OldValue:    oldPlanID,
+			NewValue:    newPlanID,
+			PriceImpact: newPlan.Price - oldPlan.Price,
+		},
+		{
+			Item:        "monthly_price",
+			OldValue:    fmt.Sprintf("$%.2f", oldPlan.Price),
+			NewValue:    fmt.Sprintf("$%.2f", newPlan.Price),
+			PriceImpact: newPlan.Price - oldPlan.Price,
+		},
+	}
+
+	response := &PlanChangeResponse{
+		Subscription:    subscription,
+		ProrationCredit: proration.Credit,
+		ImmediateCharge: proration.ImmediateCharge,
+		NextBillingDate: subscription.CurrentPeriodEnd,
+		Changes:         changes,
+	}
+
+	// Send plan change notification
+	if err := s.sendPlanChangeNotification(ctx, subscription, response); err != nil {
+		s.logger.Warn("Failed to send plan change notification", "error", err)
+	}
+
+	s.logger.Info("Subscription plan changed successfully", "subscription_id", subscriptionID)
+	return response, nil
+}
+
+// RecordUsage records usage for usage-based billing
+func (s *enhancedBillingServiceImpl) RecordUsage(ctx context.Context, req *UsageRecordRequest) error {
+	s.logger.Debug("Recording usage", "subscription_id", req.SubscriptionID, "metric", req.MetricName, "quantity", req.Quantity)
+
+	return s.usageService.RecordUsage(ctx, &UsageRecord{
+		ID:             uuid.New(),
+		SubscriptionID: req.SubscriptionID,
+		MetricName:     req.MetricName,
+		Quantity:       req.Quantity,
+		Timestamp:      req.Timestamp,
+		Action:         req.Action,
+		Properties:     req.Properties,
+		IdempotencyKey: req.IdempotencyKey,
+	})
+}
+
+// GetUsageReports gets usage report for a subscription
+func (s *enhancedBillingServiceImpl) GetUsageReports(ctx context.Context, subscriptionID uuid.UUID, period *BillingPeriod) (*UsageReport, error) {
+	s.logger.Info("Generating usage report", "subscription_id", subscriptionID)
+
+	usage, err := s.usageService.GetUsageReport(ctx, subscriptionID, period.StartDate, period.EndDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get usage report: %w", err)
+	}
+
+	// Convert to API format
+	report := &UsageReport{
+		SubscriptionID:    subscriptionID,
+		Period:            *period,
+		UsageMetrics:      s.convertUsageMetrics(usage.Metrics),
+		TotalUsageCharges: usage.TotalCharges,
+		BaseSubscription:  usage.BaseAmount,
+		TotalAmount:       usage.BaseAmount + usage.TotalCharges,
+		Currency:          usage.Currency,
+	}
+
+	return report, nil
+}
+
+// CalculateMonthlyRecurringRevenue calculates current MRR
+func (s *enhancedBillingServiceImpl) CalculateMonthlyRecurringRevenue(ctx context.Context) (*MRRCalculation, error) {
+	s.logger.Info("Calculating Monthly Recurring Revenue")
+
+	currentMRR, err := s.metricsService.CalculateCurrentMRR(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate current MRR: %w", err)
+	}
+
+	previousMRR, err := s.metricsService.CalculatePreviousMRR(ctx)
+	if err != nil {
+		s.logger.Warn("Failed to calculate previous MRR", "error", err)
+		previousMRR = 0.0
+	}
+
+	mrrComponents, err := s.metricsService.CalculateMRRComponents(ctx)
+	if err != nil {
+		s.logger.Warn("Failed to calculate MRR components", "error", err)
+		mrrComponents = &MRRComponents{}
+	}
+
+	mrrByPlan, err := s.metricsService.CalculateMRRByPlan(ctx)
+	if err != nil {
+		s.logger.Warn("Failed to calculate MRR by plan", "error", err)
+		mrrByPlan = map[string]float64{}
+	}
+
+	growth := currentMRR - previousMRR
+	growthRate := 0.0
+	if previousMRR > 0 {
+		growthRate = (growth / previousMRR) * 100
+	}
+
+	mrr := &MRRCalculation{
+		CurrentMRR:      currentMRR,
+		PreviousMRR:     previousMRR,
+		MRRGrowth:       growth,
+		MRRGrowthRate:   growthRate,
+		NewMRR:          mrrComponents.NewMRR,
+		ExpansionMRR:    mrrComponents.ExpansionMRR,
+		ContractionMRR:  mrrComponents.ContractionMRR,
+		ChurnedMRR:      mrrComponents.ChurnedMRR,
+		NetNewMRR:       mrrComponents.NewMRR + mrrComponents.ExpansionMRR - mrrComponents.ContractionMRR - mrrComponents.ChurnedMRR,
+		MRRByPlan:       mrrByPlan,
+		CalculatedAt:    time.Now(),
+	}
+
+	return mrr, nil
+}
+
+// ProcessFailedPayment handles failed payment processing
+func (s *enhancedBillingServiceImpl) ProcessFailedPayment(ctx context.Context, paymentID uuid.UUID) error {
+	s.logger.Info("Processing failed payment", "payment_id", paymentID)
+
+	payment, err := s.paymentRepo.GetByID(ctx, paymentID)
+	if err != nil {
+		return fmt.Errorf("failed to get payment: %w", err)
+	}
+
+	// Get associated subscription
+	subscription, err := s.getSubscriptionByPayment(ctx, paymentID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	// Start dunning process
+	if err := s.HandleDunningProcess(ctx, subscription.ID); err != nil {
+		s.logger.Error("Failed to start dunning process", "error", err)
+		return fmt.Errorf("failed to start dunning process: %w", err)
+	}
+
+	// Update payment status
+	payment.Status = "failed"
+	payment.UpdatedAt = time.Now()
+	if err := s.paymentRepo.Update(ctx, payment); err != nil {
+		s.logger.Error("Failed to update payment status", "error", err)
+	}
+
+	// Send failed payment notification
+	if err := s.sendFailedPaymentNotification(ctx, subscription, payment); err != nil {
+		s.logger.Warn("Failed to send payment failure notification", "error", err)
+	}
+
+	return nil
+}
+
+// Stub implementations for missing dependencies and helper methods
+// These would be fully implemented with proper business logic
+
+func (s *enhancedBillingServiceImpl) scheduleTrialEndNotification(ctx context.Context, subscription *domain.Subscription) error {
+	// Implementation would schedule notification
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) getPlanDetails(ctx context.Context, planID string) (*PlanDetails, error) {
+	// Implementation would fetch plan details
+	return &PlanDetails{ID: planID, Price: 99.0}, nil
+}
+
+func (s *enhancedBillingServiceImpl) calculateNextBillingDate(from time.Time, cycle string) time.Time {
+	// Implementation from base service
+	switch cycle {
+	case "monthly":
+		return from.AddDate(0, 1, 0)
+	case "yearly":
+		return from.AddDate(1, 0, 0)
+	default:
+		return from.AddDate(0, 1, 0)
+	}
+}
+
+func (s *enhancedBillingServiceImpl) processInitialPayment(ctx context.Context, subscription *domain.Subscription, paymentMethodID string) error {
+	// Implementation would process the first payment
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) sendTrialConversionConfirmation(ctx context.Context, subscription *domain.Subscription) error {
+	// Implementation would send confirmation email
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) calculateProration(subscription *domain.Subscription, oldPlan, newPlan *PlanDetails, behavior string) *ProrationCalculation {
+	// Implementation would calculate proration amounts
+	return &ProrationCalculation{
+		Credit:          0.0,
+		ImmediateCharge: newPlan.Price - oldPlan.Price,
+	}
+}
+
+func (s *enhancedBillingServiceImpl) processProrationCharge(ctx context.Context, subscription *domain.Subscription, amount float64) error {
+	// Implementation would process proration charge
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) sendPlanChangeNotification(ctx context.Context, subscription *domain.Subscription, response *PlanChangeResponse) error {
+	// Implementation would send plan change notification
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) convertUsageMetrics(metrics interface{}) []UsageMetric {
+	// Implementation would convert usage metrics
+	return []UsageMetric{}
+}
+
+func (s *enhancedBillingServiceImpl) getSubscriptionByPayment(ctx context.Context, paymentID uuid.UUID) (*domain.Subscription, error) {
+	// Implementation would find subscription by payment ID
+	return &domain.Subscription{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) sendFailedPaymentNotification(ctx context.Context, subscription *domain.Subscription, payment *domain.Payment) error {
+	// Implementation would send failed payment notification
+	return nil
+}
+
+// Supporting types
+type PlanDetails struct {
+	ID    string  `json:"id"`
+	Price float64 `json:"price"`
+}
+
+type ProrationCalculation struct {
+	Credit          float64 `json:"credit"`
+	ImmediateCharge float64 `json:"immediate_charge"`
+}
+
+type MRRComponents struct {
+	NewMRR         float64 `json:"new_mrr"`
+	ExpansionMRR   float64 `json:"expansion_mrr"`
+	ContractionMRR float64 `json:"contraction_mrr"`
+	ChurnedMRR     float64 `json:"churned_mrr"`
+}
+
+// Remaining interface methods would be implemented similarly...
+// For brevity, providing stubs for the required interface methods
+
+func (s *enhancedBillingServiceImpl) PauseSubscription(ctx context.Context, subscriptionID uuid.UUID, pauseUntil *time.Time) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) ResumeSubscription(ctx context.Context, subscriptionID uuid.UUID) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) CalculateUsageCharges(ctx context.Context, subscriptionID uuid.UUID, period *BillingPeriod) (*UsageCharges, error) {
+	return &UsageCharges{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) RetryFailedPayment(ctx context.Context, subscriptionID uuid.UUID) (*PaymentAttemptResult, error) {
+	return &PaymentAttemptResult{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) HandleDunningProcess(ctx context.Context, subscriptionID uuid.UUID) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) GetRevenueRecognition(ctx context.Context, period *BillingPeriod) (*RevenueRecognition, error) {
+	return &RevenueRecognition{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) GetCustomerLifetimeValue(ctx context.Context, tenantID uuid.UUID) (*CustomerLifetimeValue, error) {
+	return &CustomerLifetimeValue{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) GenerateRevenueReport(ctx context.Context, filter *RevenueReportFilter) (*RevenueReport, error) {
+	return &RevenueReport{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) GetChurnMetrics(ctx context.Context, period *BillingPeriod) (*ChurnMetrics, error) {
+	return &ChurnMetrics{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) GetSubscriptionMetrics(ctx context.Context, period *BillingPeriod) (*SubscriptionMetrics, error) {
+	return &SubscriptionMetrics{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) GetPaymentMethodAnalytics(ctx context.Context, period *BillingPeriod) (*PaymentMethodAnalytics, error) {
+	return &PaymentMethodAnalytics{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) CreateCoupon(ctx context.Context, req *CouponRequest) (*Coupon, error) {
+	return &Coupon{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) ApplyCoupon(ctx context.Context, subscriptionID uuid.UUID, couponCode string) (*CouponApplication, error) {
+	return &CouponApplication{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) RemoveCoupon(ctx context.Context, subscriptionID uuid.UUID) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) GenerateInvoice(ctx context.Context, subscriptionID uuid.UUID, billingPeriod *BillingPeriod) (*Invoice, error) {
+	return &Invoice{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) SendInvoice(ctx context.Context, invoiceID uuid.UUID) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) MarkInvoiceAsPaid(ctx context.Context, invoiceID uuid.UUID, paymentID uuid.UUID) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) VoidInvoice(ctx context.Context, invoiceID uuid.UUID, reason string) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) CalculateTax(ctx context.Context, amount float64, tenantID uuid.UUID) (*TaxCalculation, error) {
+	return &TaxCalculation{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) UpdateTaxSettings(ctx context.Context, tenantID uuid.UUID, settings *TaxSettings) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) GenerateTaxReport(ctx context.Context, period *BillingPeriod) (*TaxReport, error) {
+	return &TaxReport{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) AddPaymentMethod(ctx context.Context, tenantID uuid.UUID, req *PaymentMethodRequest) (*PaymentMethod, error) {
+	return &PaymentMethod{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) UpdateDefaultPaymentMethod(ctx context.Context, tenantID uuid.UUID, paymentMethodID string) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) RemovePaymentMethod(ctx context.Context, tenantID uuid.UUID, paymentMethodID string) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) UpdateBillingPreferences(ctx context.Context, tenantID uuid.UUID, prefs *BillingPreferences) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) GetBillingPreferences(ctx context.Context, tenantID uuid.UUID) (*BillingPreferences, error) {
+	return &BillingPreferences{}, nil
+}
+
+func (s *enhancedBillingServiceImpl) ProcessStripeWebhook(ctx context.Context, payload []byte, signature string) error {
+	return nil
+}
+
+func (s *enhancedBillingServiceImpl) SendBillingNotification(ctx context.Context, req *BillingNotificationRequest) error {
+	return nil
+}

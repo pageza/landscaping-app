@@ -13,8 +13,10 @@ type Config struct {
 	Env string
 
 	// Server
-	APIHost string
-	APIPort string
+	APIHost    string
+	APIPort    string
+	WebPort    string
+	BackendURL string
 
 	// Database
 	DatabaseURL             string
@@ -105,8 +107,10 @@ func Load() (*Config, error) {
 		Env: getEnv("ENV", "development"),
 
 		// Server
-		APIHost: getEnv("API_HOST", "0.0.0.0"),
-		APIPort: getEnv("API_PORT", "8080"),
+		APIHost:    getEnv("API_HOST", "0.0.0.0"),
+		APIPort:    getEnv("API_PORT", "8080"),
+		WebPort:    getEnv("WEB_PORT", "3000"),
+		BackendURL: getEnv("BACKEND_URL", "http://localhost:8080"),
 
 		// Database
 		DatabaseURL:             getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/landscaping_dev?sslmode=disable"),

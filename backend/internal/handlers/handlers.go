@@ -11,15 +11,32 @@ import (
 
 // Handlers holds all HTTP handlers
 type Handlers struct {
-	services *services.Services
-	config   *config.Config
+	services               *services.Services
+	config                 *config.Config
+	superAdminHandler      *SuperAdminHandler
+	onboardingHandler      *TenantOnboardingHandler
+	billingHandler         *BillingHandler
+	whiteLabelHandler      *WhiteLabelHandler
+	supportHandler         *SupportHandler
 }
 
 // NewHandlers creates a new handlers instance
 func NewHandlers(services *services.Services, config *config.Config) *Handlers {
+	// Initialize specialized handlers
+	superAdminHandler := NewSuperAdminHandler(services.SuperAdmin)
+	onboardingHandler := NewTenantOnboardingHandler(services.TenantOnboarding)
+	billingHandler := NewBillingHandler(services.EnhancedBilling)
+	whiteLabelHandler := NewWhiteLabelHandler(services.WhiteLabel)
+	supportHandler := NewSupportHandler(services.Support)
+	
 	return &Handlers{
-		services: services,
-		config:   config,
+		services:               services,
+		config:                 config,
+		superAdminHandler:      superAdminHandler,
+		onboardingHandler:      onboardingHandler,
+		billingHandler:         billingHandler,
+		whiteLabelHandler:      whiteLabelHandler,
+		supportHandler:         supportHandler,
 	}
 }
 
@@ -125,6 +142,25 @@ func (h *Handlers) SetupRoutes(mw *middleware.Middleware) http.Handler {
 	dashboard := protected.PathPrefix("/dashboard").Subrouter()
 	dashboard.HandleFunc("/stats", h.GetDashboardStats).Methods("GET")
 	dashboard.HandleFunc("/recent-activity", h.GetRecentActivity).Methods("GET")
+
+	// SaaS Platform Routes
+	
+	// Super Admin Routes (require super admin role)
+	adminProtected := v1.PathPrefix("").Subrouter()
+	adminProtected.Use(mw.RequireSuperAdminAuth)
+	h.superAdminHandler.SetupSuperAdminRoutes(adminProtected)
+	
+	// Tenant Onboarding Routes (public and protected)
+	h.onboardingHandler.SetupTenantOnboardingRoutes(v1)
+	
+	// Enhanced Billing and Subscription Routes
+	h.billingHandler.SetupBillingRoutes(protected)
+	
+	// White-label Customization Routes
+	h.whiteLabelHandler.SetupWhiteLabelRoutes(protected)
+	
+	// Support Ticket Management Routes
+	h.supportHandler.SetupSupportRoutes(protected)
 
 	return router
 }

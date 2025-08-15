@@ -1,0 +1,116 @@
+package integrations
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// Temporary storage stub to replace storage_integration.go and break import cycles
+
+// StorageStub is a temporary stub implementation
+type StorageStub struct {
+	config StorageConfig
+	logger *slog.Logger
+}
+
+// NewStorageStub creates a new storage stub
+func NewStorageStub(config StorageConfig, logger *slog.Logger) (*StorageStub, error) {
+	return &StorageStub{
+		config: config,
+		logger: logger,
+	}, nil
+}
+
+// Stub methods to satisfy interfaces
+
+func (s *StorageStub) UploadFile(ctx context.Context, req *UploadRequest) (*UploadResponse, error) {
+	s.logger.Info("Storage stub: UploadFile called", "filename", req.Filename)
+	return &UploadResponse{
+		FileID:   uuid.New().String(),
+		URL:      "http://localhost/stub/" + req.Filename,
+		CDNUrl:   "http://localhost/stub/" + req.Filename,
+		Filename: req.Filename,
+		Size:     req.Size,
+		MimeType: req.MimeType,
+	}, nil
+}
+
+func (s *StorageStub) DownloadFile(ctx context.Context, req *DownloadRequest) (*DownloadResponse, error) {
+	s.logger.Info("Storage stub: DownloadFile called", "file_id", req.FileID)
+	return &DownloadResponse{
+		Data:     []byte("stub file content"),
+		Filename: "stub_file.txt",
+		MimeType: "text/plain",
+		Size:     int64(len("stub file content")),
+	}, nil
+}
+
+func (s *StorageStub) DeleteFile(ctx context.Context, req *DeleteRequest) error {
+	s.logger.Info("Storage stub: DeleteFile called", "file_id", req.FileID)
+	return nil
+}
+
+func (s *StorageStub) GetFileURL(ctx context.Context, req *URLRequest) (*URLResponse, error) {
+	s.logger.Info("Storage stub: GetFileURL called", "file_id", req.FileID)
+	return &URLResponse{
+		URL:       "http://localhost/stub/" + req.FileID,
+		CDNUrl:    "http://localhost/stub/" + req.FileID,
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}, nil
+}
+
+func (s *StorageStub) ListFiles(ctx context.Context, req *ListRequest) (*ListResponse, error) {
+	s.logger.Info("Storage stub: ListFiles called", "folder", req.Folder)
+	return &ListResponse{
+		Files:      []FileInfo{},
+		TotalCount: 0,
+		Page:       req.Page,
+		PerPage:    req.PerPage,
+	}, nil
+}
+
+func (s *StorageStub) GetFileInfo(ctx context.Context, fileID string) (*FileInfoResponse, error) {
+	s.logger.Info("Storage stub: GetFileInfo called", "file_id", fileID)
+	return &FileInfoResponse{
+		FileID:   fileID,
+		Filename: "stub_file.txt",
+		Size:     100,
+		MimeType: "text/plain",
+		URL:      "http://localhost/stub/" + fileID,
+		CDNUrl:   "http://localhost/stub/" + fileID,
+	}, nil
+}
+
+func (s *StorageStub) ProcessImage(ctx context.Context, req *ImageProcessingRequest) (*ImageProcessingResponse, error) {
+	s.logger.Info("Storage stub: ProcessImage called", "file_id", req.FileID)
+	return &ImageProcessingResponse{
+		OriginalFileID: req.FileID,
+		ProcessedFiles: map[string]string{
+			"thumbnail": req.FileID + "_thumb",
+			"medium":    req.FileID + "_medium",
+		},
+	}, nil
+}
+
+func (s *StorageStub) GetStorageUsage(ctx context.Context, tenantID string) (*StorageUsageResponse, error) {
+	s.logger.Info("Storage stub: GetStorageUsage called", "tenant_id", tenantID)
+	return &StorageUsageResponse{
+		TenantID:     tenantID,
+		TotalFiles:   0,
+		TotalSize:    0,
+		UsageByType:  map[string]int64{},
+		LastUpdated:  time.Now(),
+	}, nil
+}
+
+// Stub validation methods
+func (s *StorageStub) validateFile(req *UploadRequest) error {
+	if req.Size > 100*1024*1024 { // 100MB limit
+		return fmt.Errorf("file too large: %d bytes", req.Size)
+	}
+	return nil
+}

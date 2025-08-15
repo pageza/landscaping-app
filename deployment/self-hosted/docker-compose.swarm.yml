@@ -1,0 +1,366 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: landscaping_prod
+      POSTGRES_USER: landscaping_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - postgres_config:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - backend
+    secrets:
+      - postgres_password
+    configs:
+      - source: postgres_config
+        target: /etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U landscaping_user -d landscaping_prod"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    configs:
+      - source: redis_config
+        target: /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  api:
+    image: ghcr.io/landscaping-app/landscaping-app/api:latest
+    environment:
+      - ENV=production
+      - API_PORT=8080
+      - DATABASE_URL=postgres://landscaping_user:$(cat /run/secrets/postgres_password)@postgres:5432/landscaping_prod?sslmode=require
+      - REDIS_URL=redis://default:$(cat /run/secrets/redis_password)@redis:6379
+    networks:
+      - frontend
+      - backend
+    secrets:
+      - postgres_password
+      - redis_password
+      - jwt_secret
+      - encryption_key
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "/api", "--health-check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: pause
+        order: start-first
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  worker:
+    image: ghcr.io/landscaping-app/landscaping-app/worker:latest
+    environment:
+      - ENV=production
+      - DATABASE_URL=postgres://landscaping_user:$(cat /run/secrets/postgres_password)@postgres:5432/landscaping_prod?sslmode=require
+      - REDIS_URL=redis://default:$(cat /run/secrets/redis_password)@redis:6379
+      - WORKER_CONCURRENCY=10
+    networks:
+      - backend
+    secrets:
+      - postgres_password
+      - redis_password
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "/worker", "--health-check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: pause
+        order: start-first
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  web:
+    image: ghcr.io/landscaping-app/landscaping-app/web:latest
+    environment:
+      - ENV=production
+      - WEB_PORT=8081
+      - API_BASE_URL=http://api:8080
+    networks:
+      - frontend
+    secrets:
+      - session_secret
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "/web-server", "--health-check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: pause
+        order: start-first
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - frontend
+    configs:
+      - source: nginx_config
+        target: /etc/nginx/nginx.conf
+    volumes:
+      - ssl_certs:/etc/ssl/certs:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - api
+      - web
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # Auto-scaling service (simple implementation using docker-gen)
+  autoscaler:
+    image: jwilder/docker-gen:0.10.0
+    command: -notify-sighup nginx -wait 5s:30s /etc/templates/nginx.tmpl /etc/nginx/conf.d/default.conf
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - nginx_templates:/etc/templates
+    networks:
+      - frontend
+    depends_on:
+      - nginx
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+          cpus: '0.05'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+networks:
+  frontend:
+    driver: overlay
+    attachable: true
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+  backend:
+    driver: overlay
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ssl_certs:
+    driver: local
+  nginx_logs:
+    driver: local
+  nginx_templates:
+    driver: local
+
+secrets:
+  postgres_password:
+    external: true
+    name: landscaping-app_postgres_password
+  redis_password:
+    external: true
+    name: landscaping-app_redis_password
+  jwt_secret:
+    external: true
+    name: landscaping-app_jwt_secret
+  encryption_key:
+    external: true
+    name: landscaping-app_encryption_key
+  session_secret:
+    external: true
+    name: landscaping-app_session_secret
+
+configs:
+  postgres_config:
+    external: true
+    name: landscaping-app_postgresql.conf
+  redis_config:
+    external: true
+    name: landscaping-app_redis.conf
+  nginx_config:
+    external: true
+    name: landscaping-app_nginx.conf

@@ -1,0 +1,899 @@
+name: Comprehensive Test Suite
+
+on:
+  push:
+    branches: [ main, develop, 'feature/*', 'hotfix/*' ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run full test suite daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - unit
+        - integration
+        - e2e
+        - performance
+        - security
+      environment:
+        description: 'Environment to test against'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  GO_VERSION: '1.23.2'
+  NODE_VERSION: '18'
+  FLUTTER_VERSION: '3.13.0'
+  POSTGRES_VERSION: '15'
+  REDIS_VERSION: '7'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Pre-flight checks
+  preflight:
+    name: Pre-flight Checks
+    runs-on: ubuntu-latest
+    outputs:
+      has_backend_changes: ${{ steps.changes.outputs.backend }}
+      has_web_changes: ${{ steps.changes.outputs.web }}
+      has_mobile_changes: ${{ steps.changes.outputs.mobile }}
+      has_infra_changes: ${{ steps.changes.outputs.infrastructure }}
+      run_full_suite: ${{ steps.decision.outputs.run_full }}
+      test_type: ${{ steps.decision.outputs.test_type }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Detect changes
+      uses: dorny/paths-filter@v2
+      id: changes
+      with:
+        filters: |
+          backend:
+            - 'backend/**'
+            - 'go.mod'
+            - 'go.sum'
+          web:
+            - 'web/**'
+            - 'package*.json'
+          mobile:
+            - 'mobile/**'
+            - 'mobile/pubspec.yaml'
+          infrastructure:
+            - 'docker/**'
+            - 'deployment/**'
+            - '.github/workflows/**'
+            - 'docker-compose*.yml'
+            - 'Makefile'
+
+    - name: Decide test strategy
+      id: decision
+      run: |
+        if [[ "${{ github.event_name }}" == "schedule" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "run_full=true" >> $GITHUB_OUTPUT
+          echo "test_type=${{ github.event.inputs.test_type || 'all' }}" >> $GITHUB_OUTPUT
+        elif [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.base_ref }}" == "main" ]]; then
+          echo "run_full=true" >> $GITHUB_OUTPUT
+          echo "test_type=all" >> $GITHUB_OUTPUT
+        else
+          echo "run_full=false" >> $GITHUB_OUTPUT
+          echo "test_type=changed" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Print test strategy
+      run: |
+        echo "Backend changes: ${{ steps.changes.outputs.backend }}"
+        echo "Web changes: ${{ steps.changes.outputs.web }}"
+        echo "Mobile changes: ${{ steps.changes.outputs.mobile }}"
+        echo "Infrastructure changes: ${{ steps.changes.outputs.infrastructure }}"
+        echo "Run full suite: ${{ steps.decision.outputs.run_full }}"
+        echo "Test type: ${{ steps.decision.outputs.test_type }}"
+
+  # Backend unit tests
+  backend-unit-tests:
+    name: Backend Unit Tests
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.has_backend_changes == 'true' || needs.preflight.outputs.run_full_suite == 'true'
+    
+    strategy:
+      matrix:
+        go-version: ['1.23.2']
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_USER: testuser
+          POSTGRES_DB: landscaping_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go ${{ matrix.go-version }}
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+        cache-dependency-path: go.sum
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run unit tests
+      run: |
+        go test -v -race -coverprofile=coverage.out -covermode=atomic ./backend/tests/...
+        go test -v -race -short ./backend/internal/...
+      env:
+        CGO_ENABLED: 1
+        DATABASE_URL: postgres://testuser:testpassword@localhost:5432/landscaping_test?sslmode=disable
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-secret
+        ENVIRONMENT: test
+
+    - name: Generate coverage report
+      run: go tool cover -html=coverage.out -o coverage.html
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        flags: backend-unit
+        name: backend-unit-go${{ matrix.go-version }}
+
+    - name: Upload coverage artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: backend-coverage-${{ matrix.go-version }}
+        path: |
+          coverage.out
+          coverage.html
+
+  # Backend integration tests
+  backend-integration-tests:
+    name: Backend Integration Tests
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.has_backend_changes == 'true' || needs.preflight.outputs.run_full_suite == 'true'
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_USER: testuser
+          POSTGRES_DB: landscaping_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache-dependency-path: go.sum
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run database migrations
+      run: |
+        go run backend/cmd/migrate/main.go up
+      env:
+        DATABASE_URL: postgres://testuser:testpassword@localhost:5432/landscaping_test?sslmode=disable
+
+    - name: Run integration tests
+      run: |
+        go test -v -tags=integration ./backend/tests/integration/...
+        go test -v -tags=integration ./backend/tests/repositories/...
+      env:
+        DATABASE_URL: postgres://testuser:testpassword@localhost:5432/landscaping_test?sslmode=disable
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-secret
+        ENVIRONMENT: test
+
+    - name: Run database tests
+      run: go test -v ./backend/tests/database/...
+      env:
+        DATABASE_URL: postgres://testuser:testpassword@localhost:5432/landscaping_test?sslmode=disable
+
+  # Web frontend tests
+  web-tests:
+    name: Web Frontend Tests
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.has_web_changes == 'true' || needs.preflight.outputs.run_full_suite == 'true'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: 'web/package-lock.json'
+
+    - name: Install dependencies
+      working-directory: ./web
+      run: npm ci
+
+    - name: Run linting
+      working-directory: ./web
+      run: npm run lint
+
+    - name: Run unit tests
+      working-directory: ./web
+      run: npm run test:coverage
+
+    - name: Upload web coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./web/coverage/lcov.info
+        flags: web-frontend
+        name: web-frontend
+
+  # Mobile app tests
+  mobile-tests:
+    name: Mobile App Tests
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.has_mobile_changes == 'true' || needs.preflight.outputs.run_full_suite == 'true'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        channel: 'stable'
+        cache: true
+
+    - name: Install dependencies
+      working-directory: ./mobile
+      run: flutter pub get
+
+    - name: Analyze code
+      working-directory: ./mobile
+      run: flutter analyze
+
+    - name: Run unit tests
+      working-directory: ./mobile
+      run: flutter test --coverage
+
+    - name: Run widget tests
+      working-directory: ./mobile
+      run: flutter test test/widgets/ --coverage
+
+    - name: Upload mobile coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./mobile/coverage/lcov.info
+        flags: mobile-app
+        name: mobile-app
+
+  # API tests
+  api-tests:
+    name: API Tests
+    runs-on: ubuntu-latest
+    needs: [preflight, backend-unit-tests]
+    if: always() && (needs.preflight.outputs.has_backend_changes == 'true' || needs.preflight.outputs.run_full_suite == 'true')
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_USER: testuser
+          POSTGRES_DB: landscaping_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Build API server
+      run: go build -o api-server ./backend/cmd/api
+
+    - name: Run database migrations
+      run: |
+        go run backend/cmd/migrate/main.go up
+      env:
+        DATABASE_URL: postgres://testuser:testpassword@localhost:5432/landscaping_test?sslmode=disable
+
+    - name: Start API server
+      run: ./api-server &
+      env:
+        DATABASE_URL: postgres://testuser:testpassword@localhost:5432/landscaping_test?sslmode=disable
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-secret
+        PORT: 8080
+
+    - name: Wait for API server
+      run: |
+        timeout 30s bash -c 'until curl -f http://localhost:8080/health; do sleep 1; done'
+
+    - name: Set up Node.js for API tests
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Install Newman
+      run: npm install -g newman newman-reporter-htmlextra
+
+    - name: Run Postman/Newman API tests
+      run: |
+        newman run tests/api/landscaping-api.postman_collection.json \
+          --environment tests/api/test.postman_environment.json \
+          --reporters cli,htmlextra \
+          --reporter-htmlextra-export newman-report.html
+      continue-on-error: true
+
+    - name: Upload API test results
+      uses: actions/upload-artifact@v3
+      with:
+        name: api-test-results
+        path: newman-report.html
+
+  # E2E tests
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [preflight, backend-unit-tests, web-tests]
+    if: always() && (needs.preflight.outputs.run_full_suite == 'true' || needs.preflight.outputs.test_type == 'e2e')
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_USER: testuser
+          POSTGRES_DB: landscaping_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install Playwright
+      working-directory: ./tests/e2e
+      run: |
+        npm ci
+        npx playwright install --with-deps
+
+    - name: Build and start services
+      run: |
+        # Build API server
+        go build -o api-server ./backend/cmd/api
+        
+        # Run migrations
+        go run backend/cmd/migrate/main.go up
+        
+        # Start API server
+        ./api-server &
+        
+        # Build and start web server
+        cd web && npm ci && npm run build && npm run start &
+        
+        # Wait for services
+        timeout 60s bash -c 'until curl -f http://localhost:8080/health; do sleep 1; done'
+        timeout 60s bash -c 'until curl -f http://localhost:3000; do sleep 1; done'
+      env:
+        DATABASE_URL: postgres://testuser:testpassword@localhost:5432/landscaping_test?sslmode=disable
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-secret
+        API_PORT: 8080
+        WEB_PORT: 3000
+
+    - name: Run E2E tests
+      working-directory: ./tests/e2e
+      run: npx playwright test
+      env:
+        BASE_URL: http://localhost:3000
+        API_BASE_URL: http://localhost:8080
+
+    - name: Upload E2E test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: e2e-test-results
+        path: |
+          tests/e2e/playwright-report/
+          tests/e2e/test-results/
+
+  # Mobile integration tests
+  mobile-integration-tests:
+    name: Mobile Integration Tests
+    runs-on: ubuntu-latest
+    needs: [preflight, api-tests]
+    if: always() && (needs.preflight.outputs.has_mobile_changes == 'true' || needs.preflight.outputs.run_full_suite == 'true')
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_USER: testuser
+          POSTGRES_DB: landscaping_test
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        channel: 'stable'
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Start API server
+      run: |
+        go run backend/cmd/migrate/main.go up
+        go build -o api-server ./backend/cmd/api
+        ./api-server &
+        timeout 30s bash -c 'until curl -f http://localhost:8080/health; do sleep 1; done'
+      env:
+        DATABASE_URL: postgres://testuser:testpassword@localhost:5432/landscaping_test?sslmode=disable
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-secret
+
+    - name: Run mobile integration tests
+      working-directory: ./mobile
+      run: |
+        flutter pub get
+        flutter test integration_test/
+      env:
+        API_BASE_URL: http://localhost:8080
+
+  # Security tests
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    needs: [preflight, api-tests]
+    if: always() && (needs.preflight.outputs.run_full_suite == 'true' || needs.preflight.outputs.test_type == 'security')
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_USER: testuser
+          POSTGRES_DB: landscaping_test
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Start services
+      run: |
+        go run backend/cmd/migrate/main.go up
+        go build -o api-server ./backend/cmd/api
+        ./api-server &
+        cd web && npm ci && npm run build && npm run start &
+        timeout 60s bash -c 'until curl -f http://localhost:8080/health; do sleep 1; done'
+        timeout 60s bash -c 'until curl -f http://localhost:3000; do sleep 1; done'
+      env:
+        DATABASE_URL: postgres://testuser:testpassword@localhost:5432/landscaping_test?sslmode=disable
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-secret
+
+    - name: Install security testing tools
+      run: |
+        npm install -g playwright
+        npx playwright install --with-deps
+
+    - name: Run security tests
+      working-directory: ./tests/security
+      run: |
+        npm ci
+        npm run test:security
+      env:
+        BASE_URL: http://localhost:3000
+        API_BASE_URL: http://localhost:8080
+
+    - name: Run OWASP ZAP scan
+      uses: zaproxy/action-baseline@v0.9.0
+      with:
+        target: 'http://localhost:3000'
+        rules_file_name: '.zap/rules.tsv'
+        cmd_options: '-a'
+
+    - name: Upload security test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-test-results
+        path: |
+          report_html.html
+          report_md.md
+          report_json.json
+
+  # Performance tests
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [preflight, api-tests]
+    if: always() && (needs.preflight.outputs.run_full_suite == 'true' || needs.preflight.outputs.test_type == 'performance')
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_USER: testuser
+          POSTGRES_DB: landscaping_test
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Start API server
+      run: |
+        go run backend/cmd/migrate/main.go up
+        go build -o api-server ./backend/cmd/api
+        ./api-server &
+        timeout 30s bash -c 'until curl -f http://localhost:8080/health; do sleep 1; done'
+      env:
+        DATABASE_URL: postgres://testuser:testpassword@localhost:5432/landscaping_test?sslmode=disable
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-secret
+
+    - name: Install k6
+      run: |
+        sudo gpg -k
+        sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+        echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+        sudo apt-get update
+        sudo apt-get install k6
+
+    - name: Run load tests
+      run: |
+        k6 run tests/load/k6-load-tests.js
+      env:
+        BASE_URL: http://localhost:8080
+
+    - name: Upload performance test results
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-test-results
+        path: |
+          load-test-results.html
+          load-test-results.json
+
+  # Code quality checks
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    needs: preflight
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Run Go linting
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        working-directory: backend
+        args: --timeout=5m
+
+    - name: Run Go security scan
+      uses: securecodewarrior/github-action-gosec@v1
+      with:
+        args: '-fmt json -out gosec-results.json ./...'
+        working-directory: backend
+
+    - name: Run dependency vulnerability scan
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck ./...
+      working-directory: backend
+
+    - name: Install and run SonarQube scanner
+      uses: sonarqube-quality-gate-action@master
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    - name: Upload code quality results
+      uses: actions/upload-artifact@v3
+      with:
+        name: code-quality-results
+        path: |
+          gosec-results.json
+          sonar-report.json
+
+  # Deployment validation
+  deployment-validation:
+    name: Deployment Validation
+    runs-on: ubuntu-latest
+    needs: [backend-unit-tests, web-tests, mobile-tests]
+    if: always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Validate Docker configurations
+      run: |
+        docker compose -f docker/docker-compose.yml config
+        docker compose -f docker/docker-compose.prod.yml config
+        docker compose -f docker/docker-compose.staging.yml config
+
+    - name: Test Docker build
+      run: |
+        docker build -f docker/Dockerfile.api -t landscaping-api:test .
+        docker build -f docker/Dockerfile.web -t landscaping-web:test .
+        docker build -f docker/Dockerfile.mobile -t landscaping-mobile:test .
+
+    - name: Validate Kubernetes manifests
+      if: github.ref == 'refs/heads/main'
+      run: |
+        kubectl --dry-run=client apply -f deployment/k8s/
+
+    - name: Run infrastructure tests
+      run: |
+        # Test infrastructure scripts
+        bash -n deployment/scripts/*.sh
+        bash -n backup/scripts/*.sh
+
+  # Test results summary
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [
+      backend-unit-tests,
+      backend-integration-tests,
+      web-tests,
+      mobile-tests,
+      api-tests,
+      e2e-tests,
+      mobile-integration-tests,
+      security-tests,
+      performance-tests,
+      code-quality
+    ]
+    if: always()
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+
+    - name: Generate test summary
+      run: |
+        echo "# Test Results Summary" > test-summary.md
+        echo "" >> test-summary.md
+        echo "## Test Execution Status" >> test-summary.md
+        echo "- Backend Unit Tests: ${{ needs.backend-unit-tests.result }}" >> test-summary.md
+        echo "- Backend Integration Tests: ${{ needs.backend-integration-tests.result }}" >> test-summary.md
+        echo "- Web Tests: ${{ needs.web-tests.result }}" >> test-summary.md
+        echo "- Mobile Tests: ${{ needs.mobile-tests.result }}" >> test-summary.md
+        echo "- API Tests: ${{ needs.api-tests.result }}" >> test-summary.md
+        echo "- E2E Tests: ${{ needs.e2e-tests.result }}" >> test-summary.md
+        echo "- Mobile Integration Tests: ${{ needs.mobile-integration-tests.result }}" >> test-summary.md
+        echo "- Security Tests: ${{ needs.security-tests.result }}" >> test-summary.md
+        echo "- Performance Tests: ${{ needs.performance-tests.result }}" >> test-summary.md
+        echo "- Code Quality: ${{ needs.code-quality.result }}" >> test-summary.md
+        echo "" >> test-summary.md
+        echo "## Coverage Reports" >> test-summary.md
+        echo "Coverage reports are available in the artifacts." >> test-summary.md
+
+    - name: Upload test summary
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-summary
+        path: test-summary.md
+
+    - name: Comment PR with results
+      uses: actions/github-script@v6
+      if: github.event_name == 'pull_request'
+      with:
+        script: |
+          const fs = require('fs');
+          const summary = fs.readFileSync('test-summary.md', 'utf8');
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: summary
+          });
+
+    - name: Check overall test status
+      run: |
+        if [[ "${{ needs.backend-unit-tests.result }}" == "failure" ||
+              "${{ needs.backend-integration-tests.result }}" == "failure" ||
+              "${{ needs.web-tests.result }}" == "failure" ||
+              "${{ needs.mobile-tests.result }}" == "failure" ||
+              "${{ needs.api-tests.result }}" == "failure" ]]; then
+          echo "Critical tests failed!"
+          exit 1
+        fi
+        
+        if [[ "${{ needs.e2e-tests.result }}" == "failure" ||
+              "${{ needs.security-tests.result }}" == "failure" ||
+              "${{ needs.performance-tests.result }}" == "failure" ]]; then
+          echo "Non-critical tests failed - investigate but don't block"
+          # Don't exit 1 here as these are less critical
+        fi
+
+  # Notification
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: test-summary
+    if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'schedule')
+
+    steps:
+    - name: Notify Slack on success
+      if: needs.test-summary.result == 'success'
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        text: '✅ All tests passed for landscaping-app!'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Notify Slack on failure
+      if: needs.test-summary.result != 'success'
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        text: '❌ Some tests failed for landscaping-app. Check the workflow for details.'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}

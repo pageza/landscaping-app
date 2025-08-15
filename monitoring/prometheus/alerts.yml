@@ -1,0 +1,257 @@
+groups:
+  - name: landscaping-app-alerts
+    rules:
+      # High-level service availability
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} on {{ $labels.instance }} has been down for more than 1 minute."
+
+      # API specific alerts
+      - alert: APIHighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="landscaping-api"}[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API high latency detected"
+          description: "95th percentile latency is above 1 second for more than 2 minutes."
+
+      - alert: APIHighErrorRate
+        expr: rate(http_requests_total{job="landscaping-api",status=~"5.."}[5m]) > 0.1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API high error rate"
+          description: "Error rate is above 10% for more than 1 minute."
+
+      - alert: APILowThroughput
+        expr: rate(http_requests_total{job="landscaping-api"}[5m]) < 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API low throughput"
+          description: "API is receiving less than 1 request per second for more than 5 minutes."
+
+      # Database alerts
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "PostgreSQL database has been down for more than 1 minute."
+
+      - alert: PostgreSQLHighConnections
+        expr: pg_stat_database_numbackends / pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL high connection usage"
+          description: "PostgreSQL is using more than 80% of available connections."
+
+      - alert: PostgreSQLSlowQueries
+        expr: rate(pg_stat_database_tup_fetched[5m]) / rate(pg_stat_database_tup_returned[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL slow queries detected"
+          description: "PostgreSQL is experiencing slow queries."
+
+      - alert: PostgreSQLHighReplicationLag
+        expr: pg_replication_lag_seconds > 30
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL replication lag is high"
+          description: "PostgreSQL replication lag is above 30 seconds."
+
+      # Redis alerts
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis has been down for more than 1 minute."
+
+      - alert: RedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis is using more than 90% of available memory."
+
+      - alert: RedisHighConnectionsRejected
+        expr: increase(redis_rejected_connections_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis connections being rejected"
+          description: "Redis is rejecting connections due to maxclient limit."
+
+      # System alerts
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80% on {{ $labels.instance }} for more than 5 minutes."
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 85% on {{ $labels.instance }} for more than 5 minutes."
+
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space is low"
+          description: "Available disk space is less than 10% on {{ $labels.instance }}."
+
+      - alert: DiskSpaceVeryLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.05
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space is critically low"
+          description: "Available disk space is less than 5% on {{ $labels.instance }}."
+
+      - alert: HighDiskIOWait
+        expr: irate(node_cpu_seconds_total{mode="iowait"}[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk I/O wait time"
+          description: "Disk I/O wait time is high on {{ $labels.instance }}."
+
+      # Container alerts
+      - alert: ContainerHighCPU
+        expr: rate(container_cpu_usage_seconds_total[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container high CPU usage"
+          description: "Container {{ $labels.name }} is using more than 80% CPU."
+
+      - alert: ContainerHighMemory
+        expr: container_memory_usage_bytes / container_spec_memory_limit_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container high memory usage"
+          description: "Container {{ $labels.name }} is using more than 90% of allocated memory."
+
+      - alert: ContainerRestarting
+        expr: increase(container_restart_count[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container is restarting"
+          description: "Container {{ $labels.name }} has restarted within the last 5 minutes."
+
+      # SSL certificate alerts
+      - alert: SSLCertificateExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 7
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSL certificate expiring soon"
+          description: "SSL certificate for {{ $labels.instance }} will expire in less than 7 days."
+
+      - alert: SSLCertificateExpired
+        expr: probe_ssl_earliest_cert_expiry - time() < 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SSL certificate has expired"
+          description: "SSL certificate for {{ $labels.instance }} has expired."
+
+      # Application business logic alerts
+      - alert: HighJobFailureRate
+        expr: rate(landscaping_jobs_failed_total[5m]) / rate(landscaping_jobs_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High job failure rate"
+          description: "Job failure rate is above 10% for more than 2 minutes."
+
+      - alert: NoJobsProcessed
+        expr: rate(landscaping_jobs_total[5m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No jobs are being processed"
+          description: "No jobs have been processed in the last 10 minutes."
+
+      - alert: HighQueueDepth
+        expr: landscaping_queue_depth > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High queue depth"
+          description: "Job queue depth is above 1000 items."
+
+  - name: alertmanager-meta
+    rules:
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alertmanager is down"
+          description: "Alertmanager has been down for more than 1 minute."
+
+  - name: prometheus-meta
+    rules:
+      - alert: PrometheusConfigurationReloadFailure
+        expr: prometheus_config_last_reload_successful != 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus configuration reload failure"
+          description: "Prometheus configuration reload has failed."
+
+      - alert: PrometheusNotificationQueueRunningFull
+        expr: predict_linear(prometheus_notifications_queue_length[5m], 60 * 30) > prometheus_notifications_queue_capacity
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus notification queue running full"
+          description: "Prometheus notification queue is running full in 30 minutes."

@@ -1,0 +1,334 @@
+package ai
+
+import (
+	"database/sql"
+	"fmt"
+	"log/slog"
+
+	"github.com/jmoiron/sqlx"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/pageza/landscaping-app/backend/internal/ai/context"
+	// "github.com/pageza/landscaping-app/backend/internal/ai/tools" // TODO: Re-enable after fixing import cycle
+	"github.com/pageza/landscaping-app/backend/internal/config"
+	"github.com/pageza/landscaping-app/backend/internal/integrations"
+	"github.com/pageza/landscaping-app/backend/internal/services"
+)
+
+// AIServiceFactory creates and configures AI assistant services
+type AIServiceFactory struct {
+	config   *config.Config
+	db       *sqlx.DB
+	redis    *redis.Client
+	services *services.Services
+	logger   *slog.Logger
+}
+
+// NewAIServiceFactory creates a new AI service factory
+func NewAIServiceFactory(
+	config *config.Config,
+	db *sqlx.DB,
+	redis *redis.Client,
+	services *services.Services,
+	logger *slog.Logger,
+) *AIServiceFactory {
+	return &AIServiceFactory{
+		config:   config,
+		db:       db,
+		redis:    redis,
+		services: services,
+		logger:   logger,
+	}
+}
+
+// CreateAIAssistant creates and configures a complete AI assistant
+func (f *AIServiceFactory) CreateAIAssistant() (Assistant, error) {
+	// Load AI configuration
+	configManager, err := NewConfigurationManager(f.config.AI.ConfigFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create configuration manager: %w", err)
+	}
+
+	aiConfig := configManager.GetConfig()
+	f.logger.Info("Loaded AI configuration", 
+		"customer_enabled", aiConfig.CustomerAssistant.Enabled,
+		"business_enabled", aiConfig.BusinessAssistant.Enabled)
+
+	// Create LLM integration
+	llmConfig := integrations.LLMConfig{
+		DefaultProvider:      f.config.LLM.DefaultProvider,
+		DefaultModel:         f.config.LLM.DefaultModel,
+		MaxTokens:           f.config.LLM.MaxTokens,
+		Temperature:         f.config.LLM.Temperature,
+		OpenAIAPIKey:        f.config.LLM.OpenAIAPIKey,
+		OpenAIOrganization:  f.config.LLM.OpenAIOrganization,
+		OpenAIBaseURL:       f.config.LLM.OpenAIBaseURL,
+		AnthropicAPIKey:     f.config.LLM.AnthropicAPIKey,
+		GeminiAPIKey:        f.config.LLM.GeminiAPIKey,
+		GeminiProjectID:     f.config.LLM.GeminiProjectID,
+		EnableModeration:    aiConfig.Security.EnableModeration,
+		ContentFilters:      aiConfig.Security.ContentFilters,
+		EnableSafetyFilters: true,
+		RequestsPerMinute:   aiConfig.RateLimit.RequestsPerMinute,
+		RequestsPerDay:      aiConfig.RateLimit.RequestsPerDay,
+		EnableCaching:       true,
+		CacheTTLSeconds:     3600,
+	}
+
+	llmIntegration, err := integrations.NewLLMIntegration(llmConfig, f.logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create LLM integration: %w", err)
+	}
+
+	// Create conversation store
+	contextStore := context.NewPostgreSQLStore(f.db)
+
+	// Create rate limiter
+	var rateLimiter RateLimiter
+	if f.redis != nil {
+		rateLimiter = NewRedisRateLimiter(f.redis, &aiConfig.RateLimit)
+	} else {
+		f.logger.Warn("Redis not available, using no-op rate limiter")
+		rateLimiter = NewNoOpRateLimiter()
+	}
+
+	// Create AI assistant
+	assistant := NewAIAssistant(
+		aiConfig,
+		llmIntegration,
+		f.services,
+		contextStore,
+		rateLimiter,
+		f.logger,
+	)
+
+	// TODO: Re-enable tools registration after fixing import cycle
+	/*
+	// Register customer tools
+	if aiConfig.CustomerAssistant.Enabled {
+		customerTools := tools.NewCustomerTools(f.services, f.logger)
+		if err := customerTools.RegisterTools(assistant); err != nil {
+			return nil, fmt.Errorf("failed to register customer tools: %w", err)
+		}
+	}
+
+	// Register business tools
+	if aiConfig.BusinessAssistant.Enabled {
+		businessTools := tools.NewBusinessTools(f.services, f.logger)
+		if err := businessTools.RegisterTools(assistant); err != nil {
+			return nil, fmt.Errorf("failed to register business tools: %w", err)
+		}
+	}
+	*/
+
+	f.logger.Info("AI assistant created successfully")
+	return assistant, nil
+}
+
+// CreateAIHandler creates the HTTP handlers for AI endpoints
+func (f *AIServiceFactory) CreateAIHandler(assistant Assistant) *AIHandler {
+	return NewAIHandler(assistant, f.config, f.services, f.logger)
+}
+
+// ValidateAIConfiguration validates the AI configuration
+func (f *AIServiceFactory) ValidateAIConfiguration() error {
+	// Check if required environment variables are set
+	if f.config.LLM.DefaultProvider == "" {
+		return fmt.Errorf("LLM default provider not configured")
+	}
+
+	switch f.config.LLM.DefaultProvider {
+	case "openai":
+		if f.config.LLM.OpenAIAPIKey == "" {
+			return fmt.Errorf("OpenAI API key not configured")
+		}
+	case "anthropic":
+		if f.config.LLM.AnthropicAPIKey == "" {
+			return fmt.Errorf("Anthropic API key not configured")
+		}
+	case "gemini":
+		if f.config.LLM.GeminiAPIKey == "" {
+			return fmt.Errorf("Gemini API key not configured")
+		}
+	default:
+		return fmt.Errorf("unsupported LLM provider: %s", f.config.LLM.DefaultProvider)
+	}
+
+	// Check database connectivity
+	if err := f.db.Ping(); err != nil {
+		return fmt.Errorf("database not accessible: %w", err)
+	}
+
+	// Check if AI tables exist
+	if err := f.validateAITables(); err != nil {
+		return fmt.Errorf("AI database tables not ready: %w", err)
+	}
+
+	// Check Redis connectivity (optional)
+	if f.redis != nil {
+		if err := f.redis.Ping(f.redis.Context()).Err(); err != nil {
+			f.logger.Warn("Redis not accessible, rate limiting will be disabled", "error", err)
+		}
+	}
+
+	return nil
+}
+
+// validateAITables checks if required AI tables exist
+func (f *AIServiceFactory) validateAITables() error {
+	requiredTables := []string{
+		"ai_conversations",
+		"ai_messages",
+		"ai_conversation_summaries",
+		"ai_usage_metrics",
+		"ai_function_usage",
+	}
+
+	for _, table := range requiredTables {
+		var exists bool
+		query := `SELECT EXISTS (
+			SELECT FROM information_schema.tables 
+			WHERE table_name = $1
+		)`
+		
+		err := f.db.QueryRow(query, table).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check table %s: %w", table, err)
+		}
+		
+		if !exists {
+			return fmt.Errorf("required table %s does not exist", table)
+		}
+	}
+
+	return nil
+}
+
+// GetAICapabilities returns the current AI capabilities
+func (f *AIServiceFactory) GetAICapabilities() map[string]interface{} {
+	configManager, err := NewConfigurationManager(f.config.AI.ConfigFile)
+	if err != nil {
+		f.logger.Error("Failed to load AI configuration", "error", err)
+		return map[string]interface{}{
+			"enabled": false,
+			"error":   "Configuration not available",
+		}
+	}
+
+	aiConfig := configManager.GetConfig()
+
+	capabilities := map[string]interface{}{
+		"enabled": aiConfig.CustomerAssistant.Enabled || aiConfig.BusinessAssistant.Enabled,
+		"customer_assistant": map[string]interface{}{
+			"enabled":      aiConfig.CustomerAssistant.Enabled,
+			"model":        aiConfig.CustomerAssistant.Model,
+			"capabilities": aiConfig.CustomerAssistant.Capabilities,
+			"tools":        aiConfig.CustomerAssistant.Tools,
+		},
+		"business_assistant": map[string]interface{}{
+			"enabled":      aiConfig.BusinessAssistant.Enabled,
+			"model":        aiConfig.BusinessAssistant.Model,
+			"capabilities": aiConfig.BusinessAssistant.Capabilities,
+			"tools":        aiConfig.BusinessAssistant.Tools,
+		},
+		"rate_limiting": map[string]interface{}{
+			"enabled":               aiConfig.RateLimit.Enabled,
+			"requests_per_minute":   aiConfig.RateLimit.RequestsPerMinute,
+			"requests_per_day":      aiConfig.RateLimit.RequestsPerDay,
+		},
+		"security": map[string]interface{}{
+			"moderation_enabled":   aiConfig.Security.EnableModeration,
+			"content_filters":      aiConfig.Security.ContentFilters,
+			"conversation_logging": aiConfig.Security.LogConversations,
+		},
+	}
+
+	return capabilities
+}
+
+// CleanupExpiredConversations cleans up old AI conversations
+func (f *AIServiceFactory) CleanupExpiredConversations() error {
+	query := `SELECT cleanup_old_ai_conversations($1)`
+	
+	var deletedCount int
+	err := f.db.QueryRow(query, 90).Scan(&deletedCount) // 90 days default
+	if err != nil {
+		return fmt.Errorf("failed to cleanup expired conversations: %w", err)
+	}
+
+	f.logger.Info("Cleaned up expired AI conversations", "deleted_count", deletedCount)
+	return nil
+}
+
+// AggregateUsageMetrics aggregates daily AI usage metrics
+func (f *AIServiceFactory) AggregateUsageMetrics() error {
+	query := `SELECT aggregate_ai_usage_metrics()`
+	
+	_, err := f.db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to aggregate usage metrics: %w", err)
+	}
+
+	f.logger.Info("Aggregated AI usage metrics")
+	return nil
+}
+
+// GetUsageStatistics returns aggregated usage statistics
+func (f *AIServiceFactory) GetUsageStatistics() (map[string]interface{}, error) {
+	// Get overall statistics
+	var stats struct {
+		TotalConversations int     `db:"total_conversations"`
+		TotalMessages      int     `db:"total_messages"`
+		TotalTokens        int     `db:"total_tokens"`
+		TotalCost          float64 `db:"total_cost"`
+		ActiveConversations int    `db:"active_conversations"`
+	}
+
+	query := `
+		SELECT 
+			COUNT(DISTINCT c.id) as total_conversations,
+			COUNT(m.id) as total_messages,
+			COALESCE(SUM(s.total_tokens), 0) as total_tokens,
+			COALESCE(SUM(s.total_cost), 0) as total_cost,
+			COUNT(CASE WHEN c.status = 'active' THEN 1 END) as active_conversations
+		FROM ai_conversations c
+		LEFT JOIN ai_messages m ON c.id = m.conversation_id
+		LEFT JOIN ai_conversation_summaries s ON c.id = s.conversation_id
+		WHERE c.created_at >= CURRENT_DATE - INTERVAL '30 days'
+	`
+
+	err := f.db.Get(&stats, query)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get usage statistics: %w", err)
+	}
+
+	// Get top functions
+	var topFunctions []struct {
+		FunctionName string `db:"function_name"`
+		CallCount    int    `db:"call_count"`
+	}
+
+	functionQuery := `
+		SELECT function_name, COUNT(*) as call_count
+		FROM ai_function_usage
+		WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
+		GROUP BY function_name
+		ORDER BY call_count DESC
+		LIMIT 10
+	`
+
+	err = f.db.Select(&topFunctions, functionQuery)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get function usage: %w", err)
+	}
+
+	return map[string]interface{}{
+		"total_conversations":  stats.TotalConversations,
+		"total_messages":       stats.TotalMessages,
+		"total_tokens":         stats.TotalTokens,
+		"total_cost":           stats.TotalCost,
+		"active_conversations": stats.ActiveConversations,
+		"top_functions":        topFunctions,
+		"period":               "30 days",
+	}, nil
+}

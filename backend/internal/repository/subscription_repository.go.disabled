@@ -1,0 +1,657 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/pageza/landscaping-app/backend/internal/domain"
+	"github.com/pageza/landscaping-app/backend/internal/services"
+)
+
+// SubscriptionRepositoryImpl implements the subscription repository interface
+type SubscriptionRepositoryImpl struct {
+	db *Database
+}
+
+// NewSubscriptionRepository creates a new subscription repository
+func NewSubscriptionRepository(db *Database) services.SubscriptionRepository {
+	return &SubscriptionRepositoryImpl{db: db}
+}
+
+// Create creates a new subscription
+func (r *SubscriptionRepositoryImpl) Create(ctx context.Context, subscription *domain.Subscription) error {
+	query := `
+		INSERT INTO subscriptions (
+			id, tenant_id, plan_id, status, billing_cycle, amount, currency,
+			current_period_start, current_period_end, trial_ends_at, cancel_at,
+			cancelled_at, payment_gateway_id, payment_gateway_subscription_id,
+			created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+		)`
+
+	_, err := r.db.ExecContext(ctx, query,
+		subscription.ID,
+		subscription.TenantID,
+		subscription.PlanID,
+		subscription.Status,
+		subscription.BillingCycle,
+		subscription.Amount,
+		subscription.Currency,
+		subscription.CurrentPeriodStart,
+		subscription.CurrentPeriodEnd,
+		subscription.TrialEndsAt,
+		subscription.CancelAt,
+		subscription.CancelledAt,
+		subscription.PaymentGatewayID,
+		subscription.PaymentGatewaySubscriptionID,
+		subscription.CreatedAt,
+		subscription.UpdatedAt,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to create subscription: %w", err)
+	}
+
+	return nil
+}
+
+// GetByID retrieves a subscription by ID
+func (r *SubscriptionRepositoryImpl) GetByID(ctx context.Context, subscriptionID uuid.UUID) (*domain.Subscription, error) {
+	query := `
+		SELECT id, tenant_id, plan_id, status, billing_cycle, amount, currency,
+			   current_period_start, current_period_end, trial_ends_at, cancel_at,
+			   cancelled_at, payment_gateway_id, payment_gateway_subscription_id,
+			   created_at, updated_at
+		FROM subscriptions
+		WHERE id = $1`
+
+	var subscription domain.Subscription
+	err := r.db.QueryRowContext(ctx, query, subscriptionID).Scan(
+		&subscription.ID,
+		&subscription.TenantID,
+		&subscription.PlanID,
+		&subscription.Status,
+		&subscription.BillingCycle,
+		&subscription.Amount,
+		&subscription.Currency,
+		&subscription.CurrentPeriodStart,
+		&subscription.CurrentPeriodEnd,
+		&subscription.TrialEndsAt,
+		&subscription.CancelAt,
+		&subscription.CancelledAt,
+		&subscription.PaymentGatewayID,
+		&subscription.PaymentGatewaySubscriptionID,
+		&subscription.CreatedAt,
+		&subscription.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	return &subscription, nil
+}
+
+// Update updates an existing subscription
+func (r *SubscriptionRepositoryImpl) Update(ctx context.Context, subscription *domain.Subscription) error {
+	query := `
+		UPDATE subscriptions SET
+			plan_id = $2, status = $3, billing_cycle = $4, amount = $5, currency = $6,
+			current_period_start = $7, current_period_end = $8, trial_ends_at = $9,
+			cancel_at = $10, cancelled_at = $11, payment_gateway_id = $12,
+			payment_gateway_subscription_id = $13, updated_at = $14
+		WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query,
+		subscription.ID,
+		subscription.PlanID,
+		subscription.Status,
+		subscription.BillingCycle,
+		subscription.Amount,
+		subscription.Currency,
+		subscription.CurrentPeriodStart,
+		subscription.CurrentPeriodEnd,
+		subscription.TrialEndsAt,
+		subscription.CancelAt,
+		subscription.CancelledAt,
+		subscription.PaymentGatewayID,
+		subscription.PaymentGatewaySubscriptionID,
+		subscription.UpdatedAt,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("subscription not found")
+	}
+
+	return nil
+}
+
+// Delete deletes a subscription (soft delete by updating status)
+func (r *SubscriptionRepositoryImpl) Delete(ctx context.Context, subscriptionID uuid.UUID) error {
+	query := `
+		UPDATE subscriptions SET
+			status = 'deleted',
+			updated_at = $2
+		WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query, subscriptionID, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to delete subscription: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("subscription not found")
+	}
+
+	return nil
+}
+
+// List lists subscriptions with filtering and pagination
+func (r *SubscriptionRepositoryImpl) List(ctx context.Context, filter *services.SubscriptionFilter) ([]*domain.Subscription, int64, error) {
+	baseQuery := `
+		FROM subscriptions
+		WHERE status != 'deleted'`
+
+	var conditions []string
+	var args []interface{}
+	argIndex := 1
+
+	// Apply filters
+	if filter.TenantID != nil {
+		conditions = append(conditions, fmt.Sprintf("tenant_id = $%d", argIndex))
+		args = append(args, *filter.TenantID)
+		argIndex++
+	}
+
+	if filter.Status != "" {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", argIndex))
+		args = append(args, filter.Status)
+		argIndex++
+	}
+
+	if filter.PlanID != "" {
+		conditions = append(conditions, fmt.Sprintf("plan_id = $%d", argIndex))
+		args = append(args, filter.PlanID)
+		argIndex++
+	}
+
+	if filter.NextBillingDate != nil {
+		conditions = append(conditions, fmt.Sprintf("current_period_end <= $%d", argIndex))
+		args = append(args, *filter.NextBillingDate)
+		argIndex++
+	}
+
+	if filter.Search != "" {
+		conditions = append(conditions, fmt.Sprintf("plan_id ILIKE $%d", argIndex))
+		args = append(args, "%"+filter.Search+"%")
+		argIndex++
+	}
+
+	whereClause := baseQuery
+	if len(conditions) > 0 {
+		whereClause += " AND " + strings.Join(conditions, " AND ")
+	}
+
+	// Count query
+	countQuery := "SELECT COUNT(*) " + whereClause
+	var total int64
+	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count subscriptions: %w", err)
+	}
+
+	// Main query with pagination
+	selectFields := `
+		SELECT id, tenant_id, plan_id, status, billing_cycle, amount, currency,
+			   current_period_start, current_period_end, trial_ends_at, cancel_at,
+			   cancelled_at, payment_gateway_id, payment_gateway_subscription_id,
+			   created_at, updated_at`
+
+	orderBy := " ORDER BY created_at DESC"
+	if filter.SortBy != "" {
+		direction := "ASC"
+		if filter.SortDesc {
+			direction = "DESC"
+		}
+		orderBy = fmt.Sprintf(" ORDER BY %s %s", filter.SortBy, direction)
+	}
+
+	limit := fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
+	args = append(args, filter.PerPage, (filter.Page-1)*filter.PerPage)
+
+	query := selectFields + whereClause + orderBy + limit
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	var subscriptions []*domain.Subscription
+	for rows.Next() {
+		var subscription domain.Subscription
+		err := rows.Scan(
+			&subscription.ID,
+			&subscription.TenantID,
+			&subscription.PlanID,
+			&subscription.Status,
+			&subscription.BillingCycle,
+			&subscription.Amount,
+			&subscription.Currency,
+			&subscription.CurrentPeriodStart,
+			&subscription.CurrentPeriodEnd,
+			&subscription.TrialEndsAt,
+			&subscription.CancelAt,
+			&subscription.CancelledAt,
+			&subscription.PaymentGatewayID,
+			&subscription.PaymentGatewaySubscriptionID,
+			&subscription.CreatedAt,
+			&subscription.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan subscription: %w", err)
+		}
+		subscriptions = append(subscriptions, &subscription)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating subscription rows: %w", err)
+	}
+
+	return subscriptions, total, nil
+}
+
+// GetByTenantID retrieves the subscription for a specific tenant
+func (r *SubscriptionRepositoryImpl) GetByTenantID(ctx context.Context, tenantID uuid.UUID) (*domain.Subscription, error) {
+	query := `
+		SELECT id, tenant_id, plan_id, status, billing_cycle, amount, currency,
+			   current_period_start, current_period_end, trial_ends_at, cancel_at,
+			   cancelled_at, payment_gateway_id, payment_gateway_subscription_id,
+			   created_at, updated_at
+		FROM subscriptions
+		WHERE tenant_id = $1 AND status != 'deleted'
+		ORDER BY created_at DESC
+		LIMIT 1`
+
+	var subscription domain.Subscription
+	err := r.db.QueryRowContext(ctx, query, tenantID).Scan(
+		&subscription.ID,
+		&subscription.TenantID,
+		&subscription.PlanID,
+		&subscription.Status,
+		&subscription.BillingCycle,
+		&subscription.Amount,
+		&subscription.Currency,
+		&subscription.CurrentPeriodStart,
+		&subscription.CurrentPeriodEnd,
+		&subscription.TrialEndsAt,
+		&subscription.CancelAt,
+		&subscription.CancelledAt,
+		&subscription.PaymentGatewayID,
+		&subscription.PaymentGatewaySubscriptionID,
+		&subscription.CreatedAt,
+		&subscription.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get subscription by tenant ID: %w", err)
+	}
+
+	return &subscription, nil
+}
+
+// GetByStatus retrieves subscriptions by status
+func (r *SubscriptionRepositoryImpl) GetByStatus(ctx context.Context, status string) ([]*domain.Subscription, error) {
+	query := `
+		SELECT id, tenant_id, plan_id, status, billing_cycle, amount, currency,
+			   current_period_start, current_period_end, trial_ends_at, cancel_at,
+			   cancelled_at, payment_gateway_id, payment_gateway_subscription_id,
+			   created_at, updated_at
+		FROM subscriptions
+		WHERE status = $1
+		ORDER BY created_at DESC`
+
+	rows, err := r.db.QueryContext(ctx, query, status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscriptions by status: %w", err)
+	}
+	defer rows.Close()
+
+	var subscriptions []*domain.Subscription
+	for rows.Next() {
+		var subscription domain.Subscription
+		err := rows.Scan(
+			&subscription.ID,
+			&subscription.TenantID,
+			&subscription.PlanID,
+			&subscription.Status,
+			&subscription.BillingCycle,
+			&subscription.Amount,
+			&subscription.Currency,
+			&subscription.CurrentPeriodStart,
+			&subscription.CurrentPeriodEnd,
+			&subscription.TrialEndsAt,
+			&subscription.CancelAt,
+			&subscription.CancelledAt,
+			&subscription.PaymentGatewayID,
+			&subscription.PaymentGatewaySubscriptionID,
+			&subscription.CreatedAt,
+			&subscription.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan subscription: %w", err)
+		}
+		subscriptions = append(subscriptions, &subscription)
+	}
+
+	return subscriptions, nil
+}
+
+// GetExpiring retrieves subscriptions expiring within the specified number of days
+func (r *SubscriptionRepositoryImpl) GetExpiring(ctx context.Context, days int) ([]*domain.Subscription, error) {
+	query := `
+		SELECT id, tenant_id, plan_id, status, billing_cycle, amount, currency,
+			   current_period_start, current_period_end, trial_ends_at, cancel_at,
+			   cancelled_at, payment_gateway_id, payment_gateway_subscription_id,
+			   created_at, updated_at
+		FROM subscriptions
+		WHERE status = 'active' 
+		  AND current_period_end <= NOW() + INTERVAL '%d days'
+		  AND current_period_end > NOW()
+		ORDER BY current_period_end ASC`
+
+	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(query, days))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get expiring subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	var subscriptions []*domain.Subscription
+	for rows.Next() {
+		var subscription domain.Subscription
+		err := rows.Scan(
+			&subscription.ID,
+			&subscription.TenantID,
+			&subscription.PlanID,
+			&subscription.Status,
+			&subscription.BillingCycle,
+			&subscription.Amount,
+			&subscription.Currency,
+			&subscription.CurrentPeriodStart,
+			&subscription.CurrentPeriodEnd,
+			&subscription.TrialEndsAt,
+			&subscription.CancelAt,
+			&subscription.CancelledAt,
+			&subscription.PaymentGatewayID,
+			&subscription.PaymentGatewaySubscriptionID,
+			&subscription.CreatedAt,
+			&subscription.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan expiring subscription: %w", err)
+		}
+		subscriptions = append(subscriptions, &subscription)
+	}
+
+	return subscriptions, nil
+}
+
+// Usage tracking methods
+
+// CreateUsageRecord creates a new usage record
+func (r *SubscriptionRepositoryImpl) CreateUsageRecord(ctx context.Context, usage *services.UsageRecord) error {
+	// Convert metadata to JSON
+	metadataJSON, err := json.Marshal(usage.Metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal usage metadata: %w", err)
+	}
+
+	query := `
+		INSERT INTO usage_records (
+			id, subscription_id, tenant_id, usage_type, quantity, timestamp, metadata
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+
+	_, err = r.db.ExecContext(ctx, query,
+		usage.ID,
+		usage.SubscriptionID,
+		usage.TenantID,
+		usage.UsageType,
+		usage.Quantity,
+		usage.Timestamp,
+		metadataJSON,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to create usage record: %w", err)
+	}
+
+	return nil
+}
+
+// GetUsageBySubscription retrieves usage records for a subscription within a date range
+func (r *SubscriptionRepositoryImpl) GetUsageBySubscription(ctx context.Context, subscriptionID uuid.UUID, startDate, endDate time.Time) ([]*services.UsageRecord, error) {
+	query := `
+		SELECT id, subscription_id, tenant_id, usage_type, quantity, timestamp, metadata
+		FROM usage_records
+		WHERE subscription_id = $1 
+		  AND timestamp >= $2 
+		  AND timestamp <= $3
+		ORDER BY timestamp DESC`
+
+	rows, err := r.db.QueryContext(ctx, query, subscriptionID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get usage by subscription: %w", err)
+	}
+	defer rows.Close()
+
+	var usageRecords []*services.UsageRecord
+	for rows.Next() {
+		var usage services.UsageRecord
+		var metadataJSON []byte
+
+		err := rows.Scan(
+			&usage.ID,
+			&usage.SubscriptionID,
+			&usage.TenantID,
+			&usage.UsageType,
+			&usage.Quantity,
+			&usage.Timestamp,
+			&metadataJSON,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan usage record: %w", err)
+		}
+
+		// Unmarshal metadata
+		if len(metadataJSON) > 0 {
+			err = json.Unmarshal(metadataJSON, &usage.Metadata)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal usage metadata: %w", err)
+			}
+		}
+
+		usageRecords = append(usageRecords, &usage)
+	}
+
+	return usageRecords, nil
+}
+
+// GetUsageSummary retrieves usage summary for a subscription for a specific period
+func (r *SubscriptionRepositoryImpl) GetUsageSummary(ctx context.Context, subscriptionID uuid.UUID, period string) (*services.UsageSummary, error) {
+	var startDate time.Time
+	now := time.Now()
+
+	switch period {
+	case "current_month":
+		startDate = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	case "last_month":
+		lastMonth := now.AddDate(0, -1, 0)
+		startDate = time.Date(lastMonth.Year(), lastMonth.Month(), 1, 0, 0, 0, 0, lastMonth.Location())
+		now = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Add(-time.Nanosecond)
+	case "current_year":
+		startDate = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+	default:
+		return nil, fmt.Errorf("unsupported period: %s", period)
+	}
+
+	// Get total usage by type
+	query := `
+		SELECT usage_type, SUM(quantity) as total_quantity
+		FROM usage_records
+		WHERE subscription_id = $1 
+		  AND timestamp >= $2 
+		  AND timestamp <= $3
+		GROUP BY usage_type`
+
+	rows, err := r.db.QueryContext(ctx, query, subscriptionID, startDate, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get usage summary: %w", err)
+	}
+	defer rows.Close()
+
+	totalUsage := make(map[string]int)
+	for rows.Next() {
+		var usageType string
+		var totalQuantity int
+		err := rows.Scan(&usageType, &totalQuantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan usage summary: %w", err)
+		}
+		totalUsage[usageType] = totalQuantity
+	}
+
+	// Get trends (daily aggregation)
+	trendsQuery := `
+		SELECT DATE(timestamp) as usage_date, usage_type, SUM(quantity) as daily_quantity
+		FROM usage_records
+		WHERE subscription_id = $1 
+		  AND timestamp >= $2 
+		  AND timestamp <= $3
+		GROUP BY DATE(timestamp), usage_type
+		ORDER BY usage_date ASC`
+
+	trendsRows, err := r.db.QueryContext(ctx, trendsQuery, subscriptionID, startDate, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get usage trends: %w", err)
+	}
+	defer trendsRows.Close()
+
+	var trends []services.UsageTrend
+	for trendsRows.Next() {
+		var trend services.UsageTrend
+		var usageDate time.Time
+		err := trendsRows.Scan(&usageDate, &trend.UsageType, &trend.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan usage trend: %w", err)
+		}
+		trend.Date = usageDate
+		trends = append(trends, trend)
+	}
+
+	summary := &services.UsageSummary{
+		SubscriptionID: subscriptionID,
+		Period:         period,
+		TotalUsage:     totalUsage,
+		Trends:         trends,
+		Overage:        make(map[string]int), // Would be calculated based on subscription limits
+		Metadata:       make(map[string]interface{}),
+	}
+
+	return summary, nil
+}
+
+// GetRevenueByPlan calculates revenue by plan for analytics
+func (r *SubscriptionRepositoryImpl) GetRevenueByPlan(ctx context.Context, startDate, endDate time.Time) (map[string]float64, error) {
+	query := `
+		SELECT s.plan_id, SUM(p.amount) as total_revenue
+		FROM subscriptions s
+		JOIN payments p ON p.invoice_id IN (
+			SELECT id FROM invoices WHERE invoice_id = s.id
+		)
+		WHERE p.status = 'completed'
+		  AND p.processed_at >= $1
+		  AND p.processed_at <= $2
+		GROUP BY s.plan_id`
+
+	rows, err := r.db.QueryContext(ctx, query, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get revenue by plan: %w", err)
+	}
+	defer rows.Close()
+
+	revenueByPlan := make(map[string]float64)
+	for rows.Next() {
+		var planID string
+		var revenue float64
+		err := rows.Scan(&planID, &revenue)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan revenue by plan: %w", err)
+		}
+		revenueByPlan[planID] = revenue
+	}
+
+	return revenueByPlan, nil
+}
+
+// GetChurnRate calculates churn rate for a specific period
+func (r *SubscriptionRepositoryImpl) GetChurnRate(ctx context.Context, startDate, endDate time.Time) (float64, error) {
+	// Get total active subscriptions at start of period
+	startQuery := `
+		SELECT COUNT(*)
+		FROM subscriptions
+		WHERE status = 'active' AND created_at <= $1`
+
+	var totalAtStart int
+	err := r.db.QueryRowContext(ctx, startQuery, startDate).Scan(&totalAtStart)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get total subscriptions at start: %w", err)
+	}
+
+	if totalAtStart == 0 {
+		return 0, nil
+	}
+
+	// Get cancelled subscriptions during period
+	churnQuery := `
+		SELECT COUNT(*)
+		FROM subscriptions
+		WHERE status = 'cancelled' 
+		  AND cancelled_at >= $1 
+		  AND cancelled_at <= $2`
+
+	var churned int
+	err = r.db.QueryRowContext(ctx, churnQuery, startDate, endDate).Scan(&churned)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get churned subscriptions: %w", err)
+	}
+
+	churnRate := float64(churned) / float64(totalAtStart) * 100
+	return churnRate, nil
+}

@@ -1,0 +1,311 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  # SAST (Static Application Security Testing)
+  sast-scan:
+    name: SAST Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: go, javascript
+
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v2
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+      with:
+        category: "/language:go"
+
+    - name: Run Semgrep
+      uses: returntocorp/semgrep-action@v1
+      with:
+        generateSarif: "1"
+        config: >-
+          p/security-audit
+          p/secrets
+          p/owasp-top-ten
+          p/dockerfile
+        publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  # Dependency scanning
+  dependency-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23.2'
+
+    - name: Run govulncheck
+      uses: golang/govulncheck-action@v1
+      with:
+         go-package: ./...
+
+    - name: Run Nancy (Go dependencies)
+      run: |
+        go install github.com/sonatypeoss/nancy@latest
+        go list -json -deps ./... | nancy sleuth --skip-update-check
+
+    - name: Set up Node.js (for web dependencies)
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Run npm audit (Web)
+      run: |
+        if [ -f "web/package.json" ]; then
+          cd web
+          npm audit --audit-level moderate
+        fi
+
+    - name: Run Snyk security scan
+      uses: snyk/actions/setup@master
+    
+    - name: Snyk Go scan
+      run: snyk test --severity-threshold=medium
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      continue-on-error: true
+
+  # Container scanning
+  container-scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Build API image for scanning
+      run: |
+        docker build -f docker/Dockerfile.api -t landscaping-api:scan .
+
+    - name: Run Trivy vulnerability scanner (API)
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'landscaping-api:scan'
+        format: 'sarif'
+        output: 'trivy-api-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-api-results.sarif'
+
+    - name: Build Worker image for scanning
+      run: |
+        docker build -f docker/Dockerfile.worker -t landscaping-worker:scan .
+
+    - name: Run Trivy vulnerability scanner (Worker)
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'landscaping-worker:scan'
+        format: 'sarif'
+        output: 'trivy-worker-results.sarif'
+
+    - name: Upload Trivy Worker scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-worker-results.sarif'
+
+    - name: Run Docker Bench Security
+      run: |
+        docker run --rm --net host --pid host --userns host --cap-add audit_control \
+          -e DOCKER_CONTENT_TRUST=$DOCKER_CONTENT_TRUST \
+          -v /etc:/etc:ro \
+          -v /lib/systemd/system:/lib/systemd/system:ro \
+          -v /usr/bin/containerd:/usr/bin/containerd:ro \
+          -v /usr/bin/runc:/usr/bin/runc:ro \
+          -v /usr/lib/systemd:/usr/lib/systemd:ro \
+          -v /var/lib:/var/lib:ro \
+          -v /var/run/docker.sock:/var/run/docker.sock:ro \
+          --label docker_bench_security \
+          docker/docker-bench-security
+
+  # Secrets scanning
+  secrets-scan:
+    name: Secrets Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Run gitleaks
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+    - name: Run TruffleHog OSS
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --debug --only-verified
+
+  # Infrastructure scanning
+  infrastructure-scan:
+    name: Infrastructure Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Run Checkov (IaC scanning)
+      uses: bridgecrewio/checkov-action@master
+      with:
+        directory: .
+        quiet: true
+        soft_fail: true
+        framework: dockerfile,secrets
+        output_format: sarif
+        output_file_path: checkov-results.sarif
+
+    - name: Upload Checkov scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: checkov-results.sarif
+
+    - name: Run Hadolint (Dockerfile linting)
+      uses: hadolint/hadolint-action@v3.1.0
+      with:
+        dockerfile: docker/Dockerfile.api
+        format: sarif
+        output-file: hadolint-api-results.sarif
+        no-color: true
+
+    - name: Upload Hadolint scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: hadolint-api-results.sarif
+
+  # License compliance
+  license-scan:
+    name: License Compliance Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23.2'
+
+    - name: Install go-licenses
+      run: go install github.com/google/go-licenses@latest
+
+    - name: Check Go licenses
+      run: |
+        go-licenses check ./...
+
+    - name: Generate license report
+      run: |
+        go-licenses csv ./... > go-licenses.csv
+
+    - name: Upload license report
+      uses: actions/upload-artifact@v3
+      with:
+        name: license-report
+        path: go-licenses.csv
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install license-checker (for Node.js dependencies)
+      run: |
+        if [ -f "web/package.json" ]; then
+          cd web
+          npm install -g license-checker
+          license-checker --json > ../node-licenses.json
+        fi
+
+    - name: Upload Node.js license report
+      uses: actions/upload-artifact@v3
+      if: hashFiles('node-licenses.json') != ''
+      with:
+        name: node-license-report
+        path: node-licenses.json
+
+  # Security notification
+  security-notification:
+    name: Security Notification
+    runs-on: ubuntu-latest
+    needs: [sast-scan, dependency-scan, container-scan, secrets-scan, infrastructure-scan]
+    if: failure()
+    
+    steps:
+    - name: Notify security team
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        channel: '#security-alerts'
+        text: |
+          🚨 Security scan failure detected!
+          Repository: ${{ github.repository }}
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Run: ${{ github.run_id }}
+          
+          Please review the security scan results immediately.
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SECURITY_SLACK_WEBHOOK_URL }}
+
+    - name: Create security issue
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `🚨 Security Scan Failure - ${context.sha.substring(0, 7)}`,
+            body: `Security scans have failed for commit ${context.sha}.\n\nPlease review the failed workflow runs and address any security vulnerabilities found.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            labels: ['security', 'urgent']
+          });

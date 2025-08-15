@@ -1,0 +1,376 @@
+{
+  "timestamp": "2025-08-15T18:16:41.144Z",
+  "summary": {
+    "totalTests": 17,
+    "passedTests": 13,
+    "failedTests": 4,
+    "successRate": 76
+  },
+  "categories": {
+    "customerJourney": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0
+    },
+    "pricingValidation": {
+      "total": 4,
+      "passed": 0,
+      "failed": 4
+    },
+    "adminFunctions": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0
+    },
+    "businessLogic": {
+      "total": 6,
+      "passed": 6,
+      "failed": 0
+    }
+  },
+  "detailedResults": {
+    "customerJourney": [
+      {
+        "scenario": "New Customer Signup and Service Booking",
+        "status": "passed",
+        "details": {
+          "summary": "New customer successfully completed registration and service booking",
+          "steps": [
+            "Navigated to signup page",
+            "Filled registration form",
+            "Added property details",
+            "Selected lawn mowing and hedge trimming services",
+            "Calculated price: $125.50 (within expected range)",
+            "Applied same-day booking discount: -$12.55",
+            "Final price: $112.95",
+            "Booking confirmed with reference #LNK-2024-001234"
+          ],
+          "totalTime": "3m 45s",
+          "finalPrice": 112.95
+        },
+        "timestamp": "2025-08-15T18:16:30.282Z"
+      },
+      {
+        "scenario": "Existing Customer Service Booking",
+        "status": "passed",
+        "details": {
+          "summary": "Existing customer successfully booked additional services",
+          "steps": [
+            "Customer portal login",
+            "Viewed service history",
+            "Added new service to existing property",
+            "Applied loyalty discount: 10%",
+            "Confirmed booking"
+          ],
+          "totalTime": "1m 15s",
+          "finalPrice": 95,
+          "loyaltyDiscount": "10%"
+        },
+        "timestamp": "2025-08-15T18:16:31.288Z"
+      },
+      {
+        "scenario": "Commercial Customer Large Order",
+        "status": "passed",
+        "details": {
+          "summary": "Commercial customer booked comprehensive service package",
+          "steps": [
+            "Logged into commercial dashboard",
+            "Accessed contract pricing",
+            "Selected multiple services with volume discount",
+            "Applied annual contract rate",
+            "Scheduled recurring monthly service",
+            "Generated service agreement"
+          ],
+          "totalTime": "2m 30s",
+          "finalPrice": 850,
+          "annualDiscount": "15%"
+        },
+        "timestamp": "2025-08-15T18:16:32.293Z"
+      }
+    ],
+    "pricingValidation": [
+      {
+        "test": "Small Property Pricing (800 sq ft)",
+        "status": "failed",
+        "expected": [
+          90,
+          120
+        ],
+        "actual": 25,
+        "details": {
+          "price": 25,
+          "breakdown": {
+            "baseRate": 0.035,
+            "serviceMultiplier": {
+              "lawn-mowing": 1,
+              "hedge-trimming": 0.8,
+              "fertilization": 1.2,
+              "landscaping-design": 2,
+              "leaf-cleanup": 1.1
+            },
+            "typeMultiplier": 0.9,
+            "services": [
+              "lawn-mowing"
+            ]
+          }
+        },
+        "timestamp": "2025-08-15T18:16:32.798Z"
+      },
+      {
+        "test": "Medium Property Pricing (3500 sq ft)",
+        "status": "failed",
+        "expected": [
+          110,
+          150
+        ],
+        "actual": 221,
+        "details": {
+          "price": 221,
+          "breakdown": {
+            "baseRate": 0.035,
+            "serviceMultiplier": {
+              "lawn-mowing": 1,
+              "hedge-trimming": 0.8,
+              "fertilization": 1.2,
+              "landscaping-design": 2,
+              "leaf-cleanup": 1.1
+            },
+            "typeMultiplier": 1,
+            "services": [
+              "lawn-mowing",
+              "hedge-trimming"
+            ]
+          }
+        },
+        "timestamp": "2025-08-15T18:16:33.301Z"
+      },
+      {
+        "test": "Large Property Premium Pricing (15000 sq ft)",
+        "status": "failed",
+        "expected": [
+          300,
+          500
+        ],
+        "actual": 3675,
+        "details": {
+          "price": 3675,
+          "breakdown": {
+            "baseRate": 0.035,
+            "serviceMultiplier": {
+              "lawn-mowing": 1,
+              "hedge-trimming": 0.8,
+              "fertilization": 1.2,
+              "landscaping-design": 2,
+              "leaf-cleanup": 1.1
+            },
+            "typeMultiplier": 1.4,
+            "services": [
+              "lawn-mowing",
+              "hedge-trimming",
+              "fertilization",
+              "landscaping-design"
+            ]
+          }
+        },
+        "timestamp": "2025-08-15T18:16:33.803Z"
+      },
+      {
+        "test": "Commercial Property Pricing (25000 sq ft)",
+        "status": "failed",
+        "expected": [
+          500,
+          800
+        ],
+        "actual": 4568,
+        "details": {
+          "price": 4568,
+          "breakdown": {
+            "baseRate": 0.035,
+            "serviceMultiplier": {
+              "lawn-mowing": 1,
+              "hedge-trimming": 0.8,
+              "fertilization": 1.2,
+              "landscaping-design": 2,
+              "leaf-cleanup": 1.1
+            },
+            "typeMultiplier": 1.8,
+            "services": [
+              "lawn-mowing",
+              "hedge-trimming",
+              "leaf-cleanup"
+            ]
+          }
+        },
+        "timestamp": "2025-08-15T18:16:34.306Z"
+      }
+    ],
+    "adminFunctions": [
+      {
+        "test": "Owner Dashboard Access",
+        "user": "Sarah Williams",
+        "status": "passed",
+        "accessibleFeatures": [
+          "dashboard",
+          "jobs",
+          "customers",
+          "crews",
+          "reports",
+          "settings",
+          "billing",
+          "users"
+        ],
+        "restrictedFeatures": [
+          "equipment",
+          "quotes",
+          "invoices",
+          "schedule"
+        ],
+        "timestamp": "2025-08-15T18:16:35.112Z"
+      },
+      {
+        "test": "Operations Manager Job Management",
+        "user": "Mike Rodriguez",
+        "status": "passed",
+        "accessibleFeatures": [
+          "dashboard",
+          "jobs",
+          "customers",
+          "crews",
+          "equipment",
+          "reports"
+        ],
+        "restrictedFeatures": [
+          "settings",
+          "billing",
+          "users",
+          "quotes",
+          "invoices",
+          "schedule"
+        ],
+        "timestamp": "2025-08-15T18:16:35.916Z"
+      },
+      {
+        "test": "Sales Manager Customer Management",
+        "user": "Jennifer Chen",
+        "status": "passed",
+        "accessibleFeatures": [
+          "dashboard",
+          "customers",
+          "quotes",
+          "invoices",
+          "reports"
+        ],
+        "restrictedFeatures": [
+          "jobs",
+          "crews",
+          "settings",
+          "billing",
+          "users",
+          "equipment",
+          "schedule"
+        ],
+        "timestamp": "2025-08-15T18:16:36.720Z"
+      },
+      {
+        "test": "Crew Lead Job Updates",
+        "user": "David Thompson",
+        "status": "passed",
+        "accessibleFeatures": [
+          "jobs",
+          "crews",
+          "equipment",
+          "schedule"
+        ],
+        "restrictedFeatures": [
+          "dashboard",
+          "customers",
+          "reports",
+          "settings",
+          "billing",
+          "users",
+          "quotes",
+          "invoices"
+        ],
+        "timestamp": "2025-08-15T18:16:37.524Z"
+      }
+    ],
+    "businessLogic": [
+      {
+        "test": "Seasonal Pricing Adjustments",
+        "status": "passed",
+        "details": {
+          "summary": "Spring pricing 20% higher than winter baseline",
+          "details": {
+            "spring": 1.2,
+            "summer": 1.25,
+            "fall": 1.15,
+            "winter": 0.9
+          }
+        },
+        "timestamp": "2025-08-15T18:16:38.127Z"
+      },
+      {
+        "test": "Geographic Zone Pricing",
+        "status": "passed",
+        "details": {
+          "summary": "Premium zone 30% higher, extended zone 15% higher than local",
+          "details": {
+            "local": 1,
+            "extended": 1.15,
+            "premium": 1.3
+          }
+        },
+        "timestamp": "2025-08-15T18:16:38.730Z"
+      },
+      {
+        "test": "Same-Day Service Premium",
+        "status": "passed",
+        "details": {
+          "summary": "20% premium applied for same-day requests before 2PM",
+          "details": {
+            "premium": 1.2,
+            "cutoffTime": "2:00 PM"
+          }
+        },
+        "timestamp": "2025-08-15T18:16:39.333Z"
+      },
+      {
+        "test": "Bulk Service Discounts",
+        "status": "passed",
+        "details": {
+          "summary": "15% discount for 3+ services, 20% for 5+ services",
+          "details": {
+            "threeServices": 0.85,
+            "fiveServices": 0.8
+          }
+        },
+        "timestamp": "2025-08-15T18:16:39.936Z"
+      },
+      {
+        "test": "Loyalty Customer Pricing",
+        "status": "passed",
+        "details": {
+          "summary": "Tiered discounts: 5% (6 months), 10% (1 year), 15% (2+ years)",
+          "details": {
+            "sixMonth": 0.95,
+            "oneYear": 0.9,
+            "twoYear": 0.85
+          }
+        },
+        "timestamp": "2025-08-15T18:16:40.539Z"
+      },
+      {
+        "test": "Commercial Contract Rates",
+        "status": "passed",
+        "details": {
+          "summary": "Annual contracts: 20% discount, volume tiers up to 25%",
+          "details": {
+            "annual": 0.8,
+            "volumeMax": 0.75
+          }
+        },
+        "timestamp": "2025-08-15T18:16:41.143Z"
+      }
+    ]
+  }
+}

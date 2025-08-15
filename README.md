@@ -69,7 +69,7 @@ landscaping-app/
 
 ### Prerequisites
 
-- Go 1.18+
+- Go 1.23.2+
 - Docker and Docker Compose
 - PostgreSQL 15+
 - Redis 7+

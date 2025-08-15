@@ -1,0 +1,396 @@
+package integrations
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	// TODO: Re-enable go-comms imports after fixing package availability
+	// gocomms "github.com/pageza/go-comms"
+	// "github.com/pageza/go-comms/providers/email"
+	// "github.com/pageza/go-comms/providers/sms"
+	// "github.com/pageza/go-comms/providers/push"
+)
+
+
+// CommsConfig holds configuration for the communications service
+type CommsConfig struct {
+	// Email configuration
+	EmailProvider    string `json:"email_provider"`    // "smtp", "sendgrid", "ses"
+	SMTPHost         string `json:"smtp_host"`
+	SMTPPort         int    `json:"smtp_port"`
+	SMTPUsername     string `json:"smtp_username"`
+	SMTPPassword     string `json:"smtp_password"`
+	SendGridAPIKey   string `json:"sendgrid_api_key"`
+	AWSAccessKey     string `json:"aws_access_key"`
+	AWSSecretKey     string `json:"aws_secret_key"`
+	AWSRegion        string `json:"aws_region"`
+	
+	// SMS configuration
+	SMSProvider      string `json:"sms_provider"`      // "twilio", "nexmo", "aws_sns"
+	TwilioAccountSID string `json:"twilio_account_sid"`
+	TwilioAuthToken  string `json:"twilio_auth_token"`
+	TwilioFromNumber string `json:"twilio_from_number"`
+	NexmoAPIKey      string `json:"nexmo_api_key"`
+	NexmoAPISecret   string `json:"nexmo_api_secret"`
+	
+	// Push notification configuration
+	PushProvider     string `json:"push_provider"`     // "fcm", "apns"
+	FCMServerKey     string `json:"fcm_server_key"`
+	APNSKeyID        string `json:"apns_key_id"`
+	APNSTeamID       string `json:"apns_team_id"`
+	APNSBundleID     string `json:"apns_bundle_id"`
+	APNSKeyPath      string `json:"apns_key_path"`
+	
+	// General settings
+	MaxRetries       int    `json:"max_retries"`
+	TimeoutSeconds   int    `json:"timeout_seconds"`
+	EnableRetries    bool   `json:"enable_retries"`
+}
+
+// CommsIntegration wraps the go-comms package for landscaping app
+type CommsIntegration struct {
+	client *CommsClient
+	config CommsConfig
+	logger *slog.Logger
+}
+
+// NewCommsIntegration creates a new communications integration
+func NewCommsIntegration(config CommsConfig, logger *slog.Logger) (*CommsIntegration, error) {
+	// Create go-comms client with configuration
+	clientConfig := &CommsClientConfig{
+		MaxRetries:     config.MaxRetries,
+		TimeoutSeconds: config.TimeoutSeconds,
+		EnableRetries:  config.EnableRetries,
+	}
+
+	client, err := NewCommsClient(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create comms client: %w", err)
+	}
+
+	integration := &CommsIntegration{
+		client: client,
+		config: config,
+		logger: logger,
+	}
+
+	// Configure email provider
+	if err := integration.configureEmailProvider(); err != nil {
+		return nil, fmt.Errorf("failed to configure email provider: %w", err)
+	}
+
+	// Configure SMS provider
+	if err := integration.configureSMSProvider(); err != nil {
+		return nil, fmt.Errorf("failed to configure SMS provider: %w", err)
+	}
+
+	// Configure push notification provider
+	if err := integration.configurePushProvider(); err != nil {
+		return nil, fmt.Errorf("failed to configure push provider: %w", err)
+	}
+
+	return integration, nil
+}
+
+// GetClient returns the go-comms client
+func (c *CommsIntegration) GetClient() *CommsClient {
+	return c.client
+}
+
+// SendEmail sends an email using the configured provider
+func (c *CommsIntegration) SendEmail(ctx context.Context, req *EmailRequest) (*EmailResponse, error) {
+	emailProvider := c.client.Email()
+	
+	sendReq := &email.SendRequest{
+		To:       req.To,
+		From:     req.From,
+		Subject:  req.Subject,
+		Body:     req.Body,
+		IsHTML:   req.IsHTML,
+		CC:       req.CC,
+		BCC:      req.BCC,
+		ReplyTo:  req.ReplyTo,
+		Headers:  req.Headers,
+	}
+
+	// Add attachments if any
+	for _, attachment := range req.Attachments {
+		sendReq.Attachments = append(sendReq.Attachments, &email.Attachment{
+			Filename:    attachment.Filename,
+			Content:     attachment.Content,
+			ContentType: attachment.ContentType,
+		})
+	}
+
+	result, err := emailProvider.Send(ctx, sendReq)
+	if err != nil {
+		c.logger.Error("Failed to send email", "error", err, "to", req.To, "subject", req.Subject)
+		return nil, fmt.Errorf("failed to send email: %w", err)
+	}
+
+	response := &EmailResponse{
+		MessageID: result.MessageID,
+		Status:    result.Status,
+		SentAt:    result.SentAt,
+	}
+
+	c.logger.Info("Email sent successfully", "message_id", result.MessageID, "to", req.To)
+	return response, nil
+}
+
+// SendSMS sends an SMS using the configured provider
+func (c *CommsIntegration) SendSMS(ctx context.Context, req *SMSRequest) (*SMSResponse, error) {
+	smsProvider := c.client.SMS()
+	
+	sendReq := &sms.SendRequest{
+		To:         req.To,
+		From:       req.From,
+		Body:       req.Body,
+		MediaURLs:  req.MediaURLs,
+	}
+
+	result, err := smsProvider.Send(ctx, sendReq)
+	if err != nil {
+		c.logger.Error("Failed to send SMS", "error", err, "to", req.To)
+		return nil, fmt.Errorf("failed to send SMS: %w", err)
+	}
+
+	response := &SMSResponse{
+		MessageID: result.MessageID,
+		Status:    result.Status,
+		SentAt:    result.SentAt,
+	}
+
+	c.logger.Info("SMS sent successfully", "message_id", result.MessageID, "to", req.To)
+	return response, nil
+}
+
+// SendPushNotification sends a push notification using the configured provider
+func (c *CommsIntegration) SendPushNotification(ctx context.Context, req *PushRequest) (*PushResponse, error) {
+	pushProvider := c.client.Push()
+	
+	sendReq := &push.SendRequest{
+		UserID:   req.UserID,
+		Title:    req.Title,
+		Body:     req.Body,
+		Data:     req.Data,
+		ImageURL: req.ImageURL,
+		Sound:    req.Sound,
+		Badge:    req.Badge,
+	}
+
+	// Set priority
+	switch req.Priority {
+	case "high":
+		sendReq.Priority = push.PriorityHigh
+	case "normal":
+		sendReq.Priority = push.PriorityNormal
+	default:
+		sendReq.Priority = push.PriorityNormal
+	}
+
+	result, err := pushProvider.Send(ctx, sendReq)
+	if err != nil {
+		c.logger.Error("Failed to send push notification", "error", err, "user_id", req.UserID)
+		return nil, fmt.Errorf("failed to send push notification: %w", err)
+	}
+
+	response := &PushResponse{
+		MessageID: result.MessageID,
+		Status:    result.Status,
+		SentAt:    result.SentAt,
+	}
+
+	c.logger.Info("Push notification sent successfully", "message_id", result.MessageID, "user_id", req.UserID)
+	return response, nil
+}
+
+// GetEmailStatus gets the status of an email
+func (c *CommsIntegration) GetEmailStatus(ctx context.Context, messageID string) (*MessageStatus, error) {
+	emailProvider := c.client.Email()
+	
+	status, err := emailProvider.GetStatus(ctx, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get email status: %w", err)
+	}
+
+	return &MessageStatus{
+		MessageID:    status.MessageID,
+		Status:       status.Status,
+		DeliveredAt:  status.DeliveredAt,
+		OpenedAt:     status.OpenedAt,
+		ClickedAt:    status.ClickedAt,
+		BouncedAt:    status.BouncedAt,
+		ErrorMessage: status.ErrorMessage,
+	}, nil
+}
+
+// GetSMSStatus gets the status of an SMS
+func (c *CommsIntegration) GetSMSStatus(ctx context.Context, messageID string) (*MessageStatus, error) {
+	smsProvider := c.client.SMS()
+	
+	status, err := smsProvider.GetStatus(ctx, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get SMS status: %w", err)
+	}
+
+	return &MessageStatus{
+		MessageID:    status.MessageID,
+		Status:       status.Status,
+		DeliveredAt:  status.DeliveredAt,
+		ErrorMessage: status.ErrorMessage,
+	}, nil
+}
+
+// Private configuration methods
+
+func (c *CommsIntegration) configureEmailProvider() error {
+	switch c.config.EmailProvider {
+	case "smtp":
+		config := &email.SMTPConfig{
+			Host:     c.config.SMTPHost,
+			Port:     c.config.SMTPPort,
+			Username: c.config.SMTPUsername,
+			Password: c.config.SMTPPassword,
+		}
+		return c.client.ConfigureEmail("smtp", config)
+		
+	case "sendgrid":
+		config := &email.SendGridConfig{
+			APIKey: c.config.SendGridAPIKey,
+		}
+		return c.client.ConfigureEmail("sendgrid", config)
+		
+	case "ses":
+		config := &email.SESConfig{
+			AccessKey: c.config.AWSAccessKey,
+			SecretKey: c.config.AWSSecretKey,
+			Region:    c.config.AWSRegion,
+		}
+		return c.client.ConfigureEmail("ses", config)
+		
+	default:
+		return fmt.Errorf("unsupported email provider: %s", c.config.EmailProvider)
+	}
+}
+
+func (c *CommsIntegration) configureSMSProvider() error {
+	switch c.config.SMSProvider {
+	case "twilio":
+		config := &sms.TwilioConfig{
+			AccountSID: c.config.TwilioAccountSID,
+			AuthToken:  c.config.TwilioAuthToken,
+			FromNumber: c.config.TwilioFromNumber,
+		}
+		return c.client.ConfigureSMS("twilio", config)
+		
+	case "nexmo":
+		config := &sms.NexmoConfig{
+			APIKey:    c.config.NexmoAPIKey,
+			APISecret: c.config.NexmoAPISecret,
+		}
+		return c.client.ConfigureSMS("nexmo", config)
+		
+	case "aws_sns":
+		config := &sms.AWSSNSConfig{
+			AccessKey: c.config.AWSAccessKey,
+			SecretKey: c.config.AWSSecretKey,
+			Region:    c.config.AWSRegion,
+		}
+		return c.client.ConfigureSMS("aws_sns", config)
+		
+	default:
+		return fmt.Errorf("unsupported SMS provider: %s", c.config.SMSProvider)
+	}
+}
+
+func (c *CommsIntegration) configurePushProvider() error {
+	switch c.config.PushProvider {
+	case "fcm":
+		config := &push.FCMConfig{
+			ServerKey: c.config.FCMServerKey,
+		}
+		return c.client.ConfigurePush("fcm", config)
+		
+	case "apns":
+		config := &push.APNSConfig{
+			KeyID:    c.config.APNSKeyID,
+			TeamID:   c.config.APNSTeamID,
+			BundleID: c.config.APNSBundleID,
+			KeyPath:  c.config.APNSKeyPath,
+		}
+		return c.client.ConfigurePush("apns", config)
+		
+	default:
+		return fmt.Errorf("unsupported push provider: %s", c.config.PushProvider)
+	}
+}
+
+// Data structures for the integration
+
+type EmailRequest struct {
+	To          []string              `json:"to"`
+	From        string                `json:"from"`
+	Subject     string                `json:"subject"`
+	Body        string                `json:"body"`
+	IsHTML      bool                  `json:"is_html"`
+	CC          []string              `json:"cc"`
+	BCC         []string              `json:"bcc"`
+	ReplyTo     string                `json:"reply_to"`
+	Headers     map[string]string     `json:"headers"`
+	Attachments []EmailAttachment     `json:"attachments"`
+}
+
+type EmailAttachment struct {
+	Filename    string `json:"filename"`
+	Content     []byte `json:"content"`
+	ContentType string `json:"content_type"`
+}
+
+type EmailResponse struct {
+	MessageID string    `json:"message_id"`
+	Status    string    `json:"status"`
+	SentAt    time.Time `json:"sent_at"`
+}
+
+type SMSRequest struct {
+	To        string   `json:"to"`
+	From      string   `json:"from"`
+	Body      string   `json:"body"`
+	MediaURLs []string `json:"media_urls"`
+}
+
+type SMSResponse struct {
+	MessageID string    `json:"message_id"`
+	Status    string    `json:"status"`
+	SentAt    time.Time `json:"sent_at"`
+}
+
+type PushRequest struct {
+	UserID   string                 `json:"user_id"`
+	Title    string                 `json:"title"`
+	Body     string                 `json:"body"`
+	Data     map[string]interface{} `json:"data"`
+	ImageURL string                 `json:"image_url"`
+	Sound    string                 `json:"sound"`
+	Badge    int                    `json:"badge"`
+	Priority string                 `json:"priority"`
+}
+
+type PushResponse struct {
+	MessageID string    `json:"message_id"`
+	Status    string    `json:"status"`
+	SentAt    time.Time `json:"sent_at"`
+}
+
+type MessageStatus struct {
+	MessageID    string     `json:"message_id"`
+	Status       string     `json:"status"`
+	DeliveredAt  *time.Time `json:"delivered_at"`
+	OpenedAt     *time.Time `json:"opened_at"`
+	ClickedAt    *time.Time `json:"clicked_at"`
+	BouncedAt    *time.Time `json:"bounced_at"`
+	ErrorMessage string     `json:"error_message"`
+}
