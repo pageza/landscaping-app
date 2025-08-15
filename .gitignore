@@ -91,6 +91,17 @@ mobile/.flutter-plugins
 mobile/.flutter-plugins-dependencies
 mobile/.dart_tool/
 mobile/pubspec.lock
+mobile/*.lock
+
+# Downloaded archives and installers
+*.tar.gz
+*.tar.bz2
+*.zip
+*.deb
+*.rpm
+*.dmg
+*.pkg
+*.msi
 
 # Web specific
 web/node_modules/
@@ -106,6 +117,8 @@ docs/.doctrees/
 # Test reports
 test-results/
 junit.xml
+puppeteer-test-results.json
+*-test-results.json
 
 # Performance monitoring
 *.prof
@@ -113,3 +126,14 @@ junit.xml
 # Local development
 .local/
 local/
+
+# Temporary shell scripts for testing
+test_server.sh
+start-web.sh
+
+# Demo files that are temporary
+demo-web/
+
+# Simple test files
+simple-web.go
+run-puppeteer-tests.js
