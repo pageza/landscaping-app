@@ -698,6 +698,35 @@ func (ar *APIRouter) UpdateUserPermissions(w http.ResponseWriter, r *http.Reques
 	ar.notImplemented(w, r)
 }
 
+// Equipment management handlers
+func (ar *APIRouter) ListEquipment(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
+func (ar *APIRouter) CreateEquipment(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
+func (ar *APIRouter) GetEquipment(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
+func (ar *APIRouter) UpdateEquipment(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
+func (ar *APIRouter) DeleteEquipment(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
+func (ar *APIRouter) ScheduleMaintenance(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
+func (ar *APIRouter) GetMaintenanceHistory(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
 // Customer management handlers
 func (ar *APIRouter) ListCustomers(w http.ResponseWriter, r *http.Request) {
 	ar.notImplemented(w, r)
