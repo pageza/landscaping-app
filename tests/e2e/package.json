@@ -1,0 +1,25 @@
+{
+  "name": "landscaping-app-e2e-tests",
+  "version": "1.0.0",
+  "description": "End-to-end tests for LandscapePro",
+  "main": "comprehensive-test-runner.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:comprehensive": "node comprehensive-test-runner.js"
+  },
+  "keywords": [
+    "e2e",
+    "testing",
+    "playwright",
+    "puppeteer"
+  ],
+  "author": "LandscapePro",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "puppeteer": "^21.0.0"
+  },
+  "dependencies": {}
+}

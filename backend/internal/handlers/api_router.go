@@ -630,6 +630,26 @@ func (ar *APIRouter) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	ar.notImplemented(w, r)
 }
 
+func (ar *APIRouter) GetPayment(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
+func (ar *APIRouter) UpdatePayment(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
+func (ar *APIRouter) RefundPayment(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
+func (ar *APIRouter) GetPaymentMethods(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
+func (ar *APIRouter) StripeWebhook(w http.ResponseWriter, r *http.Request) {
+	ar.notImplemented(w, r)
+}
+
 func (ar *APIRouter) UpdateTenantSettings(w http.ResponseWriter, r *http.Request) {
 	ar.notImplemented(w, r)
 }
@@ -642,27 +662,6 @@ func (ar *APIRouter) GetTenantBilling(w http.ResponseWriter, r *http.Request) {
 	ar.notImplemented(w, r)
 }
 
-func (ar *APIRouter) ListUsers(w http.ResponseWriter, r *http.Request) {
-	ar.notImplemented(w, r)
-}
-
-func (ar *APIRouter) CreateUser(w http.ResponseWriter, r *http.Request) {
-	ar.notImplemented(w, r)
-}
-
-func (ar *APIRouter) GetUser(w http.ResponseWriter, r *http.Request) {
-	ar.notImplemented(w, r)
-}
-
-func (ar *APIRouter) GetTenantUsage(w http.ResponseWriter, r *http.Request) {
-	ar.notImplemented(w, r)
-}
-
-func (ar *APIRouter) GetTenantBilling(w http.ResponseWriter, r *http.Request) {
-	ar.notImplemented(w, r)
-}
-
-// User management handlers
 func (ar *APIRouter) ListUsers(w http.ResponseWriter, r *http.Request) {
 	ar.notImplemented(w, r)
 }

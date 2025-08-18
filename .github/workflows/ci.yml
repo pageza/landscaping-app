@@ -121,7 +121,7 @@ jobs:
         name: backend-coverage
 
     - name: Upload coverage artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: backend-coverage
         path: coverage.html
@@ -162,7 +162,7 @@ jobs:
         npm run build
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: web-build
         path: web/dist
@@ -330,12 +330,10 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
 
-    - name: Install nancy
-      run: go install github.com/sonatypeoss/nancy@latest
-
-    - name: Run Go dependency check
+    - name: Run Go vulnerability check
       run: |
-        go list -json -deps ./... | nancy sleuth
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck ./...
 
     - name: Set up Node.js
       uses: actions/setup-node@v3
@@ -381,7 +379,7 @@ jobs:
         k6 run --out json=results.json api-load-test.js
 
     - name: Upload performance results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: performance-results
         path: tests/performance/results.json

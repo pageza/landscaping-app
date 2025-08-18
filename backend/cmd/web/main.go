@@ -412,6 +412,11 @@ func main() {
 		filepath.Join(templateDir, "login.html"),
 		filepath.Join(templateDir, "signup.html"),
 		filepath.Join(templateDir, "admin-dashboard.html"),
+		filepath.Join(templateDir, "about.html"),
+		filepath.Join(templateDir, "contact.html"),
+		filepath.Join(templateDir, "portfolio.html"),
+		filepath.Join(templateDir, "testimonials.html"),
+		filepath.Join(templateDir, "careers.html"),
 	)
 	if err != nil {
 		log.Fatalf("Failed to parse templates: %v", err)
@@ -460,6 +465,67 @@ func main() {
 		err := tmpl.ExecuteTemplate(w, "base.html", data)
 		if err != nil {
 			log.Printf("Error executing booking template: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+	})
+
+	// Static pages
+	r.HandleFunc("/about", func(w http.ResponseWriter, r *http.Request) {
+		data := PageData{
+			Title: "About Us - LandscapePro",
+			Page:  "about",
+		}
+		err := tmpl.ExecuteTemplate(w, "base.html", data)
+		if err != nil {
+			log.Printf("Error executing about template: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+	})
+
+	r.HandleFunc("/contact", func(w http.ResponseWriter, r *http.Request) {
+		data := PageData{
+			Title: "Contact Us - LandscapePro",
+			Page:  "contact",
+		}
+		err := tmpl.ExecuteTemplate(w, "base.html", data)
+		if err != nil {
+			log.Printf("Error executing contact template: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+	})
+
+	r.HandleFunc("/portfolio", func(w http.ResponseWriter, r *http.Request) {
+		data := PageData{
+			Title: "Our Portfolio - LandscapePro",
+			Page:  "portfolio",
+		}
+		err := tmpl.ExecuteTemplate(w, "base.html", data)
+		if err != nil {
+			log.Printf("Error executing portfolio template: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+	})
+
+	r.HandleFunc("/testimonials", func(w http.ResponseWriter, r *http.Request) {
+		data := PageData{
+			Title: "Testimonials - LandscapePro",
+			Page:  "testimonials",
+		}
+		err := tmpl.ExecuteTemplate(w, "base.html", data)
+		if err != nil {
+			log.Printf("Error executing testimonials template: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+	})
+
+	r.HandleFunc("/careers", func(w http.ResponseWriter, r *http.Request) {
+		data := PageData{
+			Title: "Careers - LandscapePro",
+			Page:  "careers",
+		}
+		err := tmpl.ExecuteTemplate(w, "base.html", data)
+		if err != nil {
+			log.Printf("Error executing careers template: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
 	})
@@ -546,32 +612,32 @@ func main() {
 func getFeaturedServices(w http.ResponseWriter, r *http.Request) {
 	services := []Service{
 		{
-			ID:          "1",
+			ID:          "lawn-care",
 			Name:        "Lawn Care",
 			Description: "Professional mowing, edging, and maintenance",
 			Icon:        "🌱",
 			Price:       "From $50/visit",
 		},
 		{
-			ID:          "2", 
+			ID:          "garden-design", 
 			Name:        "Garden Design",
 			Description: "Custom landscape design and installation",
 			Icon:        "🌺",
 			Price:       "Free consultation",
 		},
 		{
-			ID:          "3",
+			ID:          "tree-service",
 			Name:        "Tree Service",
 			Description: "Trimming, removal, and health assessment",
 			Icon:        "🌳",
 			Price:       "From $200",
 		},
 		{
-			ID:          "4",
-			Name:        "Irrigation",
-			Description: "Sprinkler system design and repair",
-			Icon:        "💧",
-			Price:       "From $150",
+			ID:          "hardscaping",
+			Name:        "Hardscaping",
+			Description: "Patios, walkways, and stonework",
+			Icon:        "🪨",
+			Price:       "From $300",
 		},
 	}
 
@@ -1082,35 +1148,35 @@ func getServiceDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Mock service data
 	services := map[string]Service{
-		"1": {
-			ID:          "1",
+		"lawn-care": {
+			ID:          "lawn-care",
 			Name:        "Lawn Care",
 			Description: "Complete lawn maintenance including mowing, edging, fertilization, and seasonal cleanup. Our certified professionals use commercial-grade equipment to keep your lawn healthy and beautiful year-round.",
 			Icon:        "🌱",
 			Price:       "From $50/visit",
 			Image:       "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800",
 		},
-		"2": {
-			ID:          "2",
+		"garden-design": {
+			ID:          "garden-design",
 			Name:        "Garden Design",
 			Description: "Custom landscape design services from concept to completion. We create beautiful, sustainable gardens that reflect your style and complement your property's natural features.",
 			Icon:        "🌺",
 			Price:       "Free consultation",
 			Image:       "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=800",
 		},
-		"3": {
-			ID:          "3",
+		"tree-service": {
+			ID:          "tree-service",
 			Name:        "Tree Service",
 			Description: "Professional tree care including pruning, removal, health assessment, and emergency services. Our certified arborists ensure your trees remain healthy and safe.",
 			Icon:        "🌳",
 			Price:       "From $200",
 			Image:       "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800",
 		},
-		"4": {
-			ID:          "4",
-			Name:        "Irrigation",
-			Description: "Smart irrigation system design, installation, and maintenance. Water-efficient solutions that keep your landscape healthy while reducing water usage and costs.",
-			Icon:        "💧",
+		"hardscaping": {
+			ID:          "hardscaping",
+			Name:        "Hardscaping",
+			Description: "Professional hardscaping services including patios, walkways, retaining walls, and outdoor living spaces. Transform your property with beautiful, durable stonework.",
+			Icon:        "🪨",
 			Price:       "From $150",
 			Image:       "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=800",
 		},

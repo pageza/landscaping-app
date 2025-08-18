@@ -1,0 +1,34 @@
+{
+  "name": "landscaping-app",
+  "version": "1.0.0",
+  "description": "LandscapePro - Professional Landscaping Services Platform",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test-all-links.js",
+    "test:e2e": "cd tests/e2e && npm test",
+    "test:comprehensive": "cd tests/e2e && node comprehensive-test-runner.js",
+    "backend:start": "cd backend && go run cmd/web/main.go",
+    "backend:test": "cd backend && go test ./...",
+    "backend:build": "cd backend && go build -o ../bin/landscaping-web cmd/web/main.go"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pageza/landscaping-app.git"
+  },
+  "keywords": [
+    "landscaping",
+    "saas",
+    "go",
+    "htmx",
+    "tailwindcss"
+  ],
+  "author": "LandscapePro",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/pageza/landscaping-app/issues"
+  },
+  "homepage": "https://github.com/pageza/landscaping-app#readme",
+  "devDependencies": {
+    "puppeteer": "^21.0.0"
+  }
+}

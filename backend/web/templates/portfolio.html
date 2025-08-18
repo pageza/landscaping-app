@@ -1,0 +1,283 @@
+{{define "portfolio-content"}}
+<div class="container mx-auto px-4 py-12">
+    <!-- Hero Section -->
+    <div class="text-center mb-16">
+        <h1 class="text-4xl md:text-5xl font-bold text-gray-900 mb-6">Our Portfolio</h1>
+        <p class="text-xl text-gray-600 max-w-3xl mx-auto">
+            Explore our stunning landscape transformations. From intimate garden designs to 
+            expansive commercial installations, see how we bring outdoor visions to life.
+        </p>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="flex flex-wrap justify-center mb-12" x-data="{ activeTab: 'all' }">
+        <button @click="activeTab = 'all'" 
+                :class="activeTab === 'all' ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
+                class="px-6 py-2 rounded-l-lg font-medium transition">
+            All Projects
+        </button>
+        <button @click="activeTab = 'residential'" 
+                :class="activeTab === 'residential' ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
+                class="px-6 py-2 font-medium transition">
+            Residential
+        </button>
+        <button @click="activeTab = 'commercial'" 
+                :class="activeTab === 'commercial' ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
+                class="px-6 py-2 font-medium transition">
+            Commercial
+        </button>
+        <button @click="activeTab = 'garden'" 
+                :class="activeTab === 'garden' ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
+                class="px-6 py-2 rounded-r-lg font-medium transition">
+            Garden Design
+        </button>
+    </div>
+
+    <!-- Portfolio Grid -->
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16" x-data="{ activeTab: 'all' }">
+        <!-- Project 1 -->
+        <div class="bg-white rounded-lg shadow-lg overflow-hidden" 
+             x-show="activeTab === 'all' || activeTab === 'residential'"
+             x-transition>
+            <div class="bg-gray-200 h-64 flex items-center justify-center">
+                <div class="text-center">
+                    <svg class="w-16 h-16 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                    <p class="text-gray-500 text-sm">Modern Suburban Oasis</p>
+                </div>
+            </div>
+            <div class="p-6">
+                <h3 class="text-xl font-bold text-gray-900 mb-2">Modern Suburban Oasis</h3>
+                <p class="text-gray-600 mb-4">Complete backyard transformation featuring native plants, modern hardscaping, and water-efficient irrigation.</p>
+                <div class="flex items-center justify-between">
+                    <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">Residential</span>
+                    <span class="text-gray-500 text-sm">Springfield, IL</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Project 2 -->
+        <div class="bg-white rounded-lg shadow-lg overflow-hidden" 
+             x-show="activeTab === 'all' || activeTab === 'commercial'"
+             x-transition>
+            <div class="bg-gray-200 h-64 flex items-center justify-center">
+                <div class="text-center">
+                    <svg class="w-16 h-16 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-4m-5 0H9m0 0H7m2 0v-5a2 2 0 012-2h2a2 2 0 012 2v5m-6 0V9"></path>
+                    </svg>
+                    <p class="text-gray-500 text-sm">Corporate Campus</p>
+                </div>
+            </div>
+            <div class="p-6">
+                <h3 class="text-xl font-bold text-gray-900 mb-2">Corporate Campus Landscape</h3>
+                <p class="text-gray-600 mb-4">Professional outdoor space design for a tech company headquarters with sustainable plantings and employee recreation areas.</p>
+                <div class="flex items-center justify-between">
+                    <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">Commercial</span>
+                    <span class="text-gray-500 text-sm">Chatham, IL</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Project 3 -->
+        <div class="bg-white rounded-lg shadow-lg overflow-hidden" 
+             x-show="activeTab === 'all' || activeTab === 'garden'"
+             x-transition>
+            <div class="bg-gray-200 h-64 flex items-center justify-center">
+                <div class="text-center">
+                    <svg class="w-16 h-16 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                    </svg>
+                    <p class="text-gray-500 text-sm">English Garden Design</p>
+                </div>
+            </div>
+            <div class="p-6">
+                <h3 class="text-xl font-bold text-gray-900 mb-2">English Garden Retreat</h3>
+                <p class="text-gray-600 mb-4">Classic cottage garden with perennial borders, climbing roses, and charming pathways creating a peaceful sanctuary.</p>
+                <div class="flex items-center justify-between">
+                    <span class="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-medium">Garden Design</span>
+                    <span class="text-gray-500 text-sm">Rochester, IL</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Project 4 -->
+        <div class="bg-white rounded-lg shadow-lg overflow-hidden" 
+             x-show="activeTab === 'all' || activeTab === 'residential'"
+             x-transition>
+            <div class="bg-gray-200 h-64 flex items-center justify-center">
+                <div class="text-center">
+                    <svg class="w-16 h-16 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                    <p class="text-gray-500 text-sm">Pool & Entertainment Area</p>
+                </div>
+            </div>
+            <div class="p-6">
+                <h3 class="text-xl font-bold text-gray-900 mb-2">Pool & Entertainment Paradise</h3>
+                <p class="text-gray-600 mb-4">Luxury outdoor living space with custom pool landscaping, outdoor kitchen, and entertainment areas perfect for hosting.</p>
+                <div class="flex items-center justify-between">
+                    <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">Residential</span>
+                    <span class="text-gray-500 text-sm">Sherman, IL</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Project 5 -->
+        <div class="bg-white rounded-lg shadow-lg overflow-hidden" 
+             x-show="activeTab === 'all' || activeTab === 'commercial'"
+             x-transition>
+            <div class="bg-gray-200 h-64 flex items-center justify-center">
+                <div class="text-center">
+                    <svg class="w-16 h-16 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                    </svg>
+                    <p class="text-gray-500 text-sm">Shopping Center</p>
+                </div>
+            </div>
+            <div class="p-6">
+                <h3 class="text-xl font-bold text-gray-900 mb-2">Retail Center Beautification</h3>
+                <p class="text-gray-600 mb-4">Comprehensive landscape redesign for a shopping center, including seasonal plantings and low-maintenance design.</p>
+                <div class="flex items-center justify-between">
+                    <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">Commercial</span>
+                    <span class="text-gray-500 text-sm">Riverton, IL</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Project 6 -->
+        <div class="bg-white rounded-lg shadow-lg overflow-hidden" 
+             x-show="activeTab === 'all' || activeTab === 'garden'"
+             x-transition>
+            <div class="bg-gray-200 h-64 flex items-center justify-center">
+                <div class="text-center">
+                    <svg class="w-16 h-16 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z"></path>
+                    </svg>
+                    <p class="text-gray-500 text-sm">Vegetable Garden</p>
+                </div>
+            </div>
+            <div class="p-6">
+                <h3 class="text-xl font-bold text-gray-900 mb-2">Productive Kitchen Garden</h3>
+                <p class="text-gray-600 mb-4">Sustainable vegetable garden design with raised beds, composting system, and herb spiral for year-round growing.</p>
+                <div class="flex items-center justify-between">
+                    <span class="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-medium">Garden Design</span>
+                    <span class="text-gray-500 text-sm">Auburn, IL</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Before/After Section -->
+    <div class="bg-gray-50 rounded-lg p-8 mb-16">
+        <h2 class="text-3xl font-bold text-center text-gray-900 mb-12">Before & After Transformations</h2>
+        <div class="grid md:grid-cols-2 gap-8 items-center">
+            <div>
+                <h3 class="text-xl font-semibold text-gray-900 mb-4">Project: Suburban Backyard Makeover</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <h4 class="font-medium text-gray-700 mb-2">Before</h4>
+                        <div class="bg-gray-300 rounded-lg h-32 flex items-center justify-center">
+                            <span class="text-gray-600 text-sm">Overgrown yard</span>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="font-medium text-gray-700 mb-2">After</h4>
+                        <div class="bg-primary rounded-lg h-32 flex items-center justify-center">
+                            <span class="text-white text-sm">Beautiful landscape</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <ul class="space-y-3">
+                    <li class="flex items-start">
+                        <svg class="w-5 h-5 text-primary mt-0.5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span class="text-gray-600">Removed overgrown shrubs and weeds</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="w-5 h-5 text-primary mt-0.5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span class="text-gray-600">Installed native plant gardens</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="w-5 h-5 text-primary mt-0.5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span class="text-gray-600">Created natural stone pathways</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="w-5 h-5 text-primary mt-0.5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span class="text-gray-600">Added efficient irrigation system</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="w-5 h-5 text-primary mt-0.5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span class="text-gray-600">Established year-round color palette</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Testimonials from Portfolio Projects -->
+    <div class="mb-16">
+        <h2 class="text-3xl font-bold text-center text-gray-900 mb-12">What Our Clients Say</h2>
+        <div class="grid md:grid-cols-2 gap-8">
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <div class="mb-4">⭐⭐⭐⭐⭐</div>
+                <p class="text-gray-700 mb-4 italic">
+                    "The transformation of our backyard exceeded all expectations. The team was professional, 
+                    creative, and completed everything on time and within budget."
+                </p>
+                <div>
+                    <p class="font-semibold">Jennifer & Mark Thompson</p>
+                    <p class="text-sm text-gray-600">Modern Suburban Oasis Project</p>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <div class="mb-4">⭐⭐⭐⭐⭐</div>
+                <p class="text-gray-700 mb-4 italic">
+                    "Our corporate campus looks amazing. The landscape design reflects our company values 
+                    of sustainability and innovation. Employees love the outdoor spaces!"
+                </p>
+                <div>
+                    <p class="font-semibold">David Richardson</p>
+                    <p class="text-sm text-gray-600">TechCorp Facilities Manager</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Call to Action -->
+    <div class="text-center bg-primary text-white rounded-lg p-12">
+        <h2 class="text-3xl font-bold mb-6">Ready to Create Your Own Transformation?</h2>
+        <p class="text-xl mb-8 opacity-90">
+            Let's discuss your vision and see how we can bring your outdoor space to life.
+        </p>
+        <div class="space-x-4">
+            <a href="/booking" class="bg-white text-primary px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition inline-block">
+                Get Free Quote
+            </a>
+            <a href="/contact" class="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-primary transition inline-block">
+                Contact Us
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+// Simple tab functionality
+document.addEventListener('DOMContentLoaded', function() {
+    // Alpine.js handles the tab switching automatically
+});
+</script>
+{{end}}

@@ -249,7 +249,7 @@ jobs:
         go-licenses csv ./... > go-licenses.csv
 
     - name: Upload license report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: license-report
         path: go-licenses.csv
@@ -268,7 +268,7 @@ jobs:
         fi
 
     - name: Upload Node.js license report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: hashFiles('node-licenses.json') != ''
       with:
         name: node-license-report

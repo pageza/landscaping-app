@@ -126,6 +126,16 @@
             {{template "signup-content" .}}
         {{else if eq .Page "admin-dashboard"}}
             {{template "admin-dashboard-content" .}}
+        {{else if eq .Page "about"}}
+            {{template "about-content" .}}
+        {{else if eq .Page "contact"}}
+            {{template "contact-content" .}}
+        {{else if eq .Page "portfolio"}}
+            {{template "portfolio-content" .}}
+        {{else if eq .Page "testimonials"}}
+            {{template "testimonials-content" .}}
+        {{else if eq .Page "careers"}}
+            {{template "careers-content" .}}
         {{else}}
             {{block "content" .}}{{end}}
         {{end}}

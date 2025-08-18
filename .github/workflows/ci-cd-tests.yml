@@ -177,7 +177,7 @@ jobs:
         name: backend-unit-go${{ matrix.go-version }}
 
     - name: Upload coverage artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: backend-coverage-${{ matrix.go-version }}
         path: |
@@ -407,7 +407,7 @@ jobs:
       continue-on-error: true
 
     - name: Upload API test results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: api-test-results
         path: newman-report.html
@@ -496,7 +496,7 @@ jobs:
         API_BASE_URL: http://localhost:8080
 
     - name: Upload E2E test results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: e2e-test-results
@@ -631,7 +631,7 @@ jobs:
         cmd_options: '-a'
 
     - name: Upload security test results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: security-test-results
@@ -697,7 +697,7 @@ jobs:
         BASE_URL: http://localhost:8080
 
     - name: Upload performance test results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: performance-test-results
         path: |
@@ -753,7 +753,7 @@ jobs:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     - name: Upload code quality results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: code-quality-results
         path: |
@@ -814,7 +814,7 @@ jobs:
 
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
 
     - name: Generate test summary
       run: |
@@ -836,7 +836,7 @@ jobs:
         echo "Coverage reports are available in the artifacts." >> test-summary.md
 
     - name: Upload test summary
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-summary
         path: test-summary.md

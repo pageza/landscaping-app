@@ -1,0 +1,374 @@
+{{define "careers-content"}}
+<div class="container mx-auto px-4 py-12">
+    <!-- Hero Section -->
+    <div class="text-center mb-16">
+        <h1 class="text-4xl md:text-5xl font-bold text-gray-900 mb-6">Join Our Team</h1>
+        <p class="text-xl text-gray-600 max-w-3xl mx-auto">
+            Build a rewarding career in landscaping with a company that values expertise, creativity, 
+            and environmental stewardship. We're always looking for passionate professionals to join our growing team.
+        </p>
+    </div>
+
+    <!-- Why Work With Us -->
+    <div class="grid md:grid-cols-2 gap-12 items-center mb-16">
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900 mb-6">Why Choose LandscapePro?</h2>
+            <div class="space-y-4">
+                <div class="flex items-start">
+                    <svg class="w-6 h-6 text-primary mt-1 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <div>
+                        <h3 class="font-semibold text-gray-900">Competitive Compensation</h3>
+                        <p class="text-gray-600">Above-market wages with performance bonuses and annual raises</p>
+                    </div>
+                </div>
+                <div class="flex items-start">
+                    <svg class="w-6 h-6 text-primary mt-1 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <div>
+                        <h3 class="font-semibold text-gray-900">Comprehensive Benefits</h3>
+                        <p class="text-gray-600">Health, dental, vision insurance, 401(k) matching, and paid time off</p>
+                    </div>
+                </div>
+                <div class="flex items-start">
+                    <svg class="w-6 h-6 text-primary mt-1 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <div>
+                        <h3 class="font-semibold text-gray-900">Professional Development</h3>
+                        <p class="text-gray-600">Continuing education, certification support, and career advancement opportunities</p>
+                    </div>
+                </div>
+                <div class="flex items-start">
+                    <svg class="w-6 h-6 text-primary mt-1 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <div>
+                        <h3 class="font-semibold text-gray-900">Modern Equipment</h3>
+                        <p class="text-gray-600">Work with the latest tools and technology in the industry</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="bg-gray-200 rounded-lg h-80 flex items-center justify-center">
+            <div class="text-center">
+                <svg class="w-20 h-20 text-primary mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                </svg>
+                <p class="text-gray-600">Our Team at Work</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Current Openings -->
+    <div class="mb-16">
+        <h2 class="text-3xl font-bold text-center text-gray-900 mb-12">Current Job Openings</h2>
+        <div class="space-y-6">
+            <!-- Job 1 -->
+            <div class="bg-white rounded-lg shadow-lg p-6 border-l-4 border-primary">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                    <div class="mb-4 md:mb-0">
+                        <h3 class="text-xl font-bold text-gray-900 mb-2">Landscape Designer</h3>
+                        <div class="flex flex-wrap gap-2 mb-2">
+                            <span class="bg-primary text-white px-3 py-1 rounded-full text-sm">Full-time</span>
+                            <span class="bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-sm">Design</span>
+                            <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">$50,000 - $65,000</span>
+                        </div>
+                        <p class="text-gray-600 mb-2">
+                            Create innovative landscape designs for residential and commercial projects. 
+                            3+ years experience with CAD software required.
+                        </p>
+                        <p class="text-sm text-gray-500">Posted: 3 days ago • Location: Springfield, IL</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button class="bg-primary text-white px-6 py-2 rounded-lg hover:bg-secondary transition" 
+                                hx-get="/api/jobs/apply/landscape-designer" 
+                                hx-target="#apply-modal">
+                            Apply Now
+                        </button>
+                        <button class="border border-primary text-primary px-6 py-2 rounded-lg hover:bg-primary hover:text-white transition"
+                                onclick="toggleDetails('job1')">
+                            View Details
+                        </button>
+                    </div>
+                </div>
+                <div id="job1" class="hidden mt-6 pt-6 border-t">
+                    <h4 class="font-semibold text-gray-900 mb-2">Responsibilities:</h4>
+                    <ul class="list-disc list-inside text-gray-600 mb-4 space-y-1">
+                        <li>Develop comprehensive landscape design plans</li>
+                        <li>Collaborate with clients to understand their vision</li>
+                        <li>Create detailed CAD drawings and 3D renderings</li>
+                        <li>Select appropriate plants and materials</li>
+                        <li>Oversee design implementation</li>
+                    </ul>
+                    <h4 class="font-semibold text-gray-900 mb-2">Requirements:</h4>
+                    <ul class="list-disc list-inside text-gray-600 space-y-1">
+                        <li>Bachelor's degree in Landscape Architecture or related field</li>
+                        <li>3+ years of professional design experience</li>
+                        <li>Proficiency in AutoCAD, SketchUp, or similar software</li>
+                        <li>Strong communication and project management skills</li>
+                        <li>Valid driver's license</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Job 2 -->
+            <div class="bg-white rounded-lg shadow-lg p-6 border-l-4 border-primary">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                    <div class="mb-4 md:mb-0">
+                        <h3 class="text-xl font-bold text-gray-900 mb-2">Crew Lead / Foreman</h3>
+                        <div class="flex flex-wrap gap-2 mb-2">
+                            <span class="bg-primary text-white px-3 py-1 rounded-full text-sm">Full-time</span>
+                            <span class="bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-sm">Operations</span>
+                            <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">$40,000 - $50,000</span>
+                        </div>
+                        <p class="text-gray-600 mb-2">
+                            Lead landscape installation and maintenance crews. Supervise projects and ensure 
+                            quality standards. Leadership experience preferred.
+                        </p>
+                        <p class="text-sm text-gray-500">Posted: 1 week ago • Location: Springfield, IL</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button class="bg-primary text-white px-6 py-2 rounded-lg hover:bg-secondary transition" 
+                                hx-get="/api/jobs/apply/crew-lead" 
+                                hx-target="#apply-modal">
+                            Apply Now
+                        </button>
+                        <button class="border border-primary text-primary px-6 py-2 rounded-lg hover:bg-primary hover:text-white transition"
+                                onclick="toggleDetails('job2')">
+                            View Details
+                        </button>
+                    </div>
+                </div>
+                <div id="job2" class="hidden mt-6 pt-6 border-t">
+                    <h4 class="font-semibold text-gray-900 mb-2">Responsibilities:</h4>
+                    <ul class="list-disc list-inside text-gray-600 mb-4 space-y-1">
+                        <li>Supervise landscape crews of 3-5 team members</li>
+                        <li>Ensure quality control on all projects</li>
+                        <li>Coordinate with project managers and clients</li>
+                        <li>Train new team members on proper techniques</li>
+                        <li>Maintain equipment and job site safety</li>
+                    </ul>
+                    <h4 class="font-semibold text-gray-900 mb-2">Requirements:</h4>
+                    <ul class="list-disc list-inside text-gray-600 space-y-1">
+                        <li>5+ years of landscaping experience</li>
+                        <li>Previous leadership or supervisory experience</li>
+                        <li>Knowledge of plants, irrigation, and hardscaping</li>
+                        <li>Strong communication and problem-solving skills</li>
+                        <li>Valid driver's license with clean record</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Job 3 -->
+            <div class="bg-white rounded-lg shadow-lg p-6 border-l-4 border-primary">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                    <div class="mb-4 md:mb-0">
+                        <h3 class="text-xl font-bold text-gray-900 mb-2">Certified Arborist</h3>
+                        <div class="flex flex-wrap gap-2 mb-2">
+                            <span class="bg-primary text-white px-3 py-1 rounded-full text-sm">Full-time</span>
+                            <span class="bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-sm">Specialized</span>
+                            <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">$55,000 - $70,000</span>
+                        </div>
+                        <p class="text-gray-600 mb-2">
+                            Join our tree care team! ISA certification required. Perform tree assessments, 
+                            pruning, and removal. Great opportunity for tree care professional.
+                        </p>
+                        <p class="text-sm text-gray-500">Posted: 2 weeks ago • Location: Springfield, IL</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button class="bg-primary text-white px-6 py-2 rounded-lg hover:bg-secondary transition" 
+                                hx-get="/api/jobs/apply/arborist" 
+                                hx-target="#apply-modal">
+                            Apply Now
+                        </button>
+                        <button class="border border-primary text-primary px-6 py-2 rounded-lg hover:bg-primary hover:text-white transition"
+                                onclick="toggleDetails('job3')">
+                            View Details
+                        </button>
+                    </div>
+                </div>
+                <div id="job3" class="hidden mt-6 pt-6 border-t">
+                    <h4 class="font-semibold text-gray-900 mb-2">Responsibilities:</h4>
+                    <ul class="list-disc list-inside text-gray-600 mb-4 space-y-1">
+                        <li>Perform tree health assessments and diagnostics</li>
+                        <li>Execute proper pruning and tree care techniques</li>
+                        <li>Safe tree removal when necessary</li>
+                        <li>Educate clients on tree care best practices</li>
+                        <li>Maintain certification and stay current with industry standards</li>
+                    </ul>
+                    <h4 class="font-semibold text-gray-900 mb-2">Requirements:</h4>
+                    <ul class="list-disc list-inside text-gray-600 space-y-1">
+                        <li>ISA Certified Arborist credential required</li>
+                        <li>3+ years of professional tree care experience</li>
+                        <li>Experience with aerial lift operations</li>
+                        <li>Strong knowledge of tree biology and pathology</li>
+                        <li>Physical ability to perform tree work safely</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Job 4 -->
+            <div class="bg-white rounded-lg shadow-lg p-6 border-l-4 border-yellow-500">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                    <div class="mb-4 md:mb-0">
+                        <h3 class="text-xl font-bold text-gray-900 mb-2">Landscape Technician (Entry Level)</h3>
+                        <div class="flex flex-wrap gap-2 mb-2">
+                            <span class="bg-yellow-500 text-white px-3 py-1 rounded-full text-sm">Entry Level</span>
+                            <span class="bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-sm">Operations</span>
+                            <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">$30,000 - $35,000</span>
+                        </div>
+                        <p class="text-gray-600 mb-2">
+                            Perfect for someone starting their landscaping career! We provide full training. 
+                            Great opportunity to learn from experienced professionals.
+                        </p>
+                        <p class="text-sm text-gray-500">Posted: 5 days ago • Location: Springfield, IL</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button class="bg-primary text-white px-6 py-2 rounded-lg hover:bg-secondary transition" 
+                                hx-get="/api/jobs/apply/landscape-tech" 
+                                hx-target="#apply-modal">
+                            Apply Now
+                        </button>
+                        <button class="border border-primary text-primary px-6 py-2 rounded-lg hover:bg-primary hover:text-white transition"
+                                onclick="toggleDetails('job4')">
+                            View Details
+                        </button>
+                    </div>
+                </div>
+                <div id="job4" class="hidden mt-6 pt-6 border-t">
+                    <h4 class="font-semibold text-gray-900 mb-2">What We'll Teach You:</h4>
+                    <ul class="list-disc list-inside text-gray-600 mb-4 space-y-1">
+                        <li>Proper use of landscaping tools and equipment</li>
+                        <li>Plant identification and care techniques</li>
+                        <li>Installation of plants, mulch, and basic hardscaping</li>
+                        <li>Irrigation system basics</li>
+                        <li>Safety protocols and best practices</li>
+                    </ul>
+                    <h4 class="font-semibold text-gray-900 mb-2">What We're Looking For:</h4>
+                    <ul class="list-disc list-inside text-gray-600 space-y-1">
+                        <li>Strong work ethic and willingness to learn</li>
+                        <li>Ability to work outdoors in various weather conditions</li>
+                        <li>Physical ability to lift 50+ pounds</li>
+                        <li>Valid driver's license</li>
+                        <li>Positive attitude and team player mentality</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Benefits Section -->
+    <div class="bg-gray-50 rounded-lg p-8 mb-16">
+        <h2 class="text-3xl font-bold text-center text-gray-900 mb-12">Employee Benefits</h2>
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div class="text-center">
+                <div class="bg-primary text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Health & Wellness</h3>
+                <p class="text-gray-600">Comprehensive health, dental, and vision insurance with company contribution.</p>
+            </div>
+            <div class="text-center">
+                <div class="bg-primary text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Time Off</h3>
+                <p class="text-gray-600">Generous paid time off, holidays, and flexible scheduling options.</p>
+            </div>
+            <div class="text-center">
+                <div class="bg-primary text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Education</h3>
+                <p class="text-gray-600">Tuition assistance and certification support for professional development.</p>
+            </div>
+            <div class="text-center">
+                <div class="bg-primary text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Retirement</h3>
+                <p class="text-gray-600">401(k) plan with company matching up to 4% of salary.</p>
+            </div>
+            <div class="text-center">
+                <div class="bg-primary text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Recognition</h3>
+                <p class="text-gray-600">Performance bonuses, employee of the month program, and advancement opportunities.</p>
+            </div>
+            <div class="text-center">
+                <div class="bg-primary text-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Equipment</h3>
+                <p class="text-gray-600">Company-provided tools, uniforms, and modern equipment to do your best work.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Process -->
+    <div class="mb-16">
+        <h2 class="text-3xl font-bold text-center text-gray-900 mb-12">Application Process</h2>
+        <div class="grid md:grid-cols-4 gap-8">
+            <div class="text-center">
+                <div class="bg-primary text-white rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-4 text-xl font-bold">1</div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Apply Online</h3>
+                <p class="text-gray-600">Submit your application and resume through our online portal.</p>
+            </div>
+            <div class="text-center">
+                <div class="bg-primary text-white rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-4 text-xl font-bold">2</div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Phone Screening</h3>
+                <p class="text-gray-600">Brief phone conversation to discuss your experience and interest.</p>
+            </div>
+            <div class="text-center">
+                <div class="bg-primary text-white rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-4 text-xl font-bold">3</div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">In-Person Interview</h3>
+                <p class="text-gray-600">Meet with our team to discuss the role and your qualifications.</p>
+            </div>
+            <div class="text-center">
+                <div class="bg-primary text-white rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-4 text-xl font-bold">4</div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Join the Team</h3>
+                <p class="text-gray-600">Start your orientation and begin making beautiful landscapes!</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Don't See a Fit? -->
+    <div class="bg-primary text-white rounded-lg p-12 text-center">
+        <h2 class="text-3xl font-bold mb-6">Don't See the Perfect Role?</h2>
+        <p class="text-xl mb-8 opacity-90">
+            We're always interested in meeting talented professionals. Send us your resume and tell us about your landscaping passion.
+        </p>
+        <button class="bg-white text-primary px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition"
+                hx-get="/api/jobs/general-inquiry" 
+                hx-target="#apply-modal">
+            Submit General Application
+        </button>
+    </div>
+
+    <!-- Modal Container -->
+    <div id="apply-modal"></div>
+</div>
+
+<script>
+function toggleDetails(jobId) {
+    const element = document.getElementById(jobId);
+    element.classList.toggle('hidden');
+}
+</script>
+{{end}}
